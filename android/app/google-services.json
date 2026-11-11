@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "1037735653348",
+    "project_id": "rajhans-farmhouse-admin",
+    "storage_bucket": "rajhans-farmhouse-admin.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1037735653348:android:482e044c08f9f1746be1f1",
+        "android_client_info": {
+          "package_name": "com.rajhansfarmhouse.admin"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1037735653348-rnpc3d6g1oefqodq4tficksp2mkut7m6.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.rajhansfarmhouse.admin",
+            "certificate_hash": "544acc17683e041c0733605cd9dac1e528fe8a39"
+          }
+        },
+        {
+          "client_id": "1037735653348-bglccvu616v7ls1flda6q9p8kibg0qdf.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCjErWFphJLQxbz1G-TrV4nU8p2F3BKnhc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1037735653348-bglccvu616v7ls1flda6q9p8kibg0qdf.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

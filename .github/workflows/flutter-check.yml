@@ -1,0 +1,55 @@
+name: Flutter checks
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  firestore-rules:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: npm ci
+      - run: npx -y firebase-tools@latest emulators:exec --project demo-rajhans --only firestore "npm run test:rules"
+  analyze-test-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.9'
+          cache: true
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+      - name: Verify Android release compilation (test signing)
+        run: flutter build apk --release --target-platform android-arm64 --split-per-abi
+      - name: Record APK signing certificate
+        shell: bash
+        run: |
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)"
+          "$APKSIGNER" verify --print-certs build/app/outputs/flutter-apk/app-arm64-v8a-release.apk > build/app/outputs/flutter-apk/signing-certificate.txt
+          echo 'This APK uses a per-run test certificate. Register the SHA-1 and SHA-256 in Firebase before testing Google sign-in. Use a stable signing key for distribution.' > build/app/outputs/flutter-apk/README.txt
+          echo '### Android test APK' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Google sign-in requires the certificate below to be registered in Firebase. Compilation success does not verify device sign-in.' >> "$GITHUB_STEP_SUMMARY"
+          cat build/app/outputs/flutter-apk/signing-certificate.txt >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-compilation-check
+          path: |
+            build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+            build/app/outputs/flutter-apk/signing-certificate.txt
+            build/app/outputs/flutter-apk/README.txt
+

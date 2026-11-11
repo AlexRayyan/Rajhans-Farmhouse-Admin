@@ -1,0 +1,176 @@
+rules_version = '2';
+// Admin-only single-property app, Asia/Kolkata, stays of 1..31 nights at 11 AM.
+// admins/{uid}: active:boolean; operator-managed, never client writable.
+// bookings/{id}: bounded guest/phone/notes/source, guestCount 2..100 for new
+// bookings (legacy 1-guest records remain cancellable), integer paise, UTC
+// checkInAt/checkOutAt, slotId=first slot epoch millis, status, immutable
+// creation audit, updated audit, monotonic revision, unique mutationId.
+// Optional immutable bookingCode: RFddMMyy[-NN]. paidPaise: admin-recorded
+// cumulative payment, integer 0..totalPaise; audit/revision applies to corrections.
+// Optional availability sequenceDate/sequenceNumber allocate codes atomically.
+// availability/state: slots map {epochMillis: bookingId}, revision,
+// lastBookingId, mutationId, updatedAt. Provisioned/migrated by an operator.
+// One shared availability document avoids per-night Rules document-read limits.
+// Its diff may only add canonical new nights and remove the changed booking's
+// old nights; occupied keys can never be reassigned. Counts prove full coverage.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function isOwner(uid) { return signedIn() && request.auth.uid == uid; }
+    function isAdmin() {
+      return signedIn() && get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.active == true;
+    }
+    function text(value, low, high) { return value is string && value.size() >= low && value.size() <= high; }
+    function uidUnchanged(d) { return d.createdBy == request.auth.uid; }
+    function uidNotModified(d) { return d.createdBy == resource.data.createdBy; }
+    function nights(d) { return int((d.checkOutAt.toMillis() - d.checkInAt.toMillis()) / 86400000); }
+    function todayCheckIn() { return (request.time + duration.value(330,'m')).date() + duration.value(330,'m'); }
+    function isValidBooking(d) {
+      return d.keys().hasAll(['guestName','phone','notes','source','guestCount','totalPaise','paidPaise',
+          'checkInAt','checkOutAt','slotId','slotIds','status','createdBy','updatedBy','createdAt','updatedAt','revision','mutationId'])
+        && d.keys().hasOnly(['guestName','phone','notes','source','guestCount','totalPaise','paidPaise',
+          'checkInAt','checkOutAt','slotId','slotIds','status','createdBy','updatedBy','createdAt','updatedAt','revision','mutationId','bookingCode'])
+        && text(d.guestName,2,120) && text(d.phone,8,20) && d.phone.matches('^[+0-9 ()-]{8,20}$')
+        && text(d.notes,0,1000) && d.source in ['phone','whatsapp','walk-in','other']
+        && d.guestCount is int && d.guestCount >= 1 && d.guestCount <= 100
+        && d.totalPaise is int && d.totalPaise > 0 && d.totalPaise <= 1000000000
+        && d.paidPaise is int && d.paidPaise >= 0 && d.paidPaise <= d.totalPaise
+        && (!('bookingCode' in d) || text(d.bookingCode,8,13) && d.bookingCode.matches('^RF[0-9]{6}(-[0-9]{2,4})?$'))
+        && d.checkInAt is timestamp && d.checkOutAt is timestamp
+        && d.checkInAt >= timestamp.date(2020,1,1) && d.checkInAt < timestamp.date(2100,1,1)
+        && d.checkInAt.hours() == 5 && d.checkInAt.minutes() == 30
+        && d.checkInAt.seconds() == 0 && d.checkInAt.nanos() == 0
+        && nights(d) >= 1 && nights(d) <= 31
+        && d.checkOutAt == d.checkInAt + duration.value(nights(d),'d')
+        && d.slotIds is list && d.slotIds.size() >= 1 && d.slotIds.size() <= 31 && d.slotIds == slotKeys(d)
+        && text(d.slotId,12,14) && d.slotId == string(d.checkInAt.toMillis())
+        && d.status in ['confirmed','cancelled'] && text(d.createdBy,1,128) && text(d.updatedBy,1,128)
+        && d.createdAt is timestamp && d.updatedAt == request.time && d.updatedBy == request.auth.uid
+        && d.revision is int && d.revision >= 0 && d.revision <= 1000000
+        && text(d.mutationId,20,20) && d.mutationId.matches('^[A-Za-z0-9]{20}$');
+    }
+    function stateChangedWith(d,id) {
+      let before = get(/databases/$(database)/documents/availability/state).data;
+      let after = getAfter(/databases/$(database)/documents/availability/state).data;
+      return after.lastBookingId == id && after.mutationId == d.mutationId
+        && after.mutationId != before.mutationId && after.revision == before.revision + 1
+        && after.updatedAt == request.time;
+    }
+    function slotKeys(d) {
+      let start = d.checkInAt.toMillis();
+      return [
+        string(start),
+        string(start + 86400000),
+        string(start + 172800000),
+        string(start + 259200000),
+        string(start + 345600000),
+        string(start + 432000000),
+        string(start + 518400000),
+        string(start + 604800000),
+        string(start + 691200000),
+        string(start + 777600000),
+        string(start + 864000000),
+        string(start + 950400000),
+        string(start + 1036800000),
+        string(start + 1123200000),
+        string(start + 1209600000),
+        string(start + 1296000000),
+        string(start + 1382400000),
+        string(start + 1468800000),
+        string(start + 1555200000),
+        string(start + 1641600000),
+        string(start + 1728000000),
+        string(start + 1814400000),
+        string(start + 1900800000),
+        string(start + 1987200000),
+        string(start + 2073600000),
+        string(start + 2160000000),
+        string(start + 2246400000),
+        string(start + 2332800000),
+        string(start + 2419200000),
+        string(start + 2505600000),
+        string(start + 2592000000)
+      ][0:nights(d)];
+    }
+    function isValidAvailability(d) {
+      return d.keys().hasAll(['slots','revision','lastBookingId','mutationId','updatedAt'])
+        && d.keys().hasOnly(['slots','revision','lastBookingId','mutationId','updatedAt','sequenceDate','sequenceNumber'])
+        && d.slots is map && d.slots.size() <= 10000
+        && d.revision is int && d.revision == resource.data.revision + 1
+        && text(d.lastBookingId,1,160) && !d.lastBookingId.matches('.*[/].*')
+        && text(d.mutationId,20,20) && d.mutationId.matches('^[A-Za-z0-9]{20}$')
+        && d.mutationId != resource.data.mutationId && d.updatedAt == request.time;
+    }
+    function pad(n) { return n < 10 ? '0' + string(n) : string(n); }
+    function creationDate() {
+      let date = request.time + duration.value(330,'m');
+      return pad(date.day()) + pad(date.month()) + pad(date.year() % 100);
+    }
+    function validCode(d,id) {
+      let state = getAfter(/databases/$(database)/documents/availability/state).data;
+      let number = state.sequenceNumber;
+      return d.bookingCode == 'RF' + state.sequenceDate + (number == 1 ? '' : '-' + pad(number))
+        && text(id,1,160) && id.matches('^.{1,120} - ' + d.bookingCode + '$');
+    }
+    function sequenceUnchanged(d) {
+      return d.get('sequenceDate','') == resource.data.get('sequenceDate','')
+        && d.get('sequenceNumber',0) == resource.data.get('sequenceNumber',0);
+    }
+    function validSequence(d) {
+      let existed = exists(/databases/$(database)/documents/bookings/$(d.lastBookingId));
+      let booking = getAfter(/databases/$(database)/documents/bookings/$(d.lastBookingId)).data;
+      return existed || !('bookingCode' in booking) ? sequenceUnchanged(d)
+        : d.sequenceDate == creationDate() && d.sequenceNumber is int
+          && d.sequenceNumber >= 1 && d.sequenceNumber <= 9999
+          && d.sequenceNumber == (resource.data.get('sequenceDate','') == d.sequenceDate ? resource.data.get('sequenceNumber',0) + 1 : 1);
+    }
+    function validAvailabilityTransition(d) {
+      let existed = exists(/databases/$(database)/documents/bookings/$(d.lastBookingId));
+      let old = existed ? get(/databases/$(database)/documents/bookings/$(d.lastBookingId)).data : {'status':'new'};
+      let after = getAfter(/databases/$(database)/documents/bookings/$(d.lastBookingId)).data;
+      let oldKeys = existed && old.status == 'confirmed' ? old.get('slotIds',[old.slotId]) : [];
+      let newKeys = after.status == 'confirmed' ? after.slotIds : [];
+      let diff = d.slots.diff(resource.data.slots);
+      let count = d.slots.values().size() - d.slots.values().removeAll([d.lastBookingId]).size();
+      return after.mutationId == d.mutationId && after.updatedAt == request.time
+        && after.revision == (existed ? old.revision + 1 : 0)
+        && diff.changedKeys().size() == 0
+        && diff.addedKeys().hasOnly(newKeys)
+        && diff.removedKeys().hasOnly(oldKeys)
+        && diff.removedKeys().hasAll(oldKeys.toSet().difference(newKeys.toSet()))
+        && count == newKeys.size();
+    }
+    match /admins/{uid} {
+      allow get: if isOwner(uid);
+      allow list, create, update, delete: if false;
+    }
+    match /bookings/{id} {
+      allow read: if isAdmin();
+      allow create: if isAdmin() && isValidBooking(request.resource.data)
+        && ('bookingCode' in request.resource.data ? validCode(request.resource.data,id) : id.matches('^[A-Za-z0-9]{20}$'))
+        && request.resource.data.guestCount >= 2 && uidUnchanged(request.resource.data)
+        && request.resource.data.createdAt == request.time && request.resource.data.revision == 0
+        && request.resource.data.status == 'confirmed' && request.resource.data.checkInAt >= todayCheckIn()
+        && stateChangedWith(request.resource.data,id);
+      allow update: if isAdmin() && isValidBooking(request.resource.data) && uidNotModified(request.resource.data)
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.get('bookingCode','') == resource.data.get('bookingCode','')
+        && request.resource.data.revision == resource.data.revision + 1
+        && request.resource.data.mutationId != resource.data.get('mutationId','')
+        && resource.data.status == 'confirmed'
+        && (request.resource.data.status == 'cancelled'
+          ? request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','updatedBy','updatedAt','revision','mutationId','slotIds'])
+          : request.resource.data.guestCount >= 2
+            && (request.resource.data.checkInAt >= todayCheckIn()
+              || request.resource.data.checkInAt == resource.data.checkInAt && request.resource.data.checkOutAt == resource.data.checkOutAt))
+        && stateChangedWith(request.resource.data,id);
+      allow delete: if false;
+    }
+    match /availability/state {
+      allow read: if isAdmin();
+      allow update: if isAdmin() && isValidAvailability(request.resource.data) && validAvailabilityTransition(request.resource.data) && validSequence(request.resource.data);
+      allow create, delete: if false;
+    }
+    match /{document=**} { allow read, write: if false; }
+  }
+}
