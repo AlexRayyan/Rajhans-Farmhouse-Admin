@@ -89,9 +89,17 @@ class _LoginScreenState extends State<_LoginScreen> {
           GoogleAuthProvider.credential(idToken: authentication.idToken);
       await FirebaseAuth.instance.signInWithCredential(credential);
     } on GoogleSignInException catch (e) {
-      if (mounted && e.code != GoogleSignInExceptionCode.canceled) {
+      // Android Credential Manager can also report configuration failures as
+      // cancellation after account selection. Never silently discard them.
+      if (mounted) {
+        setState(() => error = e.code == GoogleSignInExceptionCode.canceled
+            ? 'Sign-in was cancelled or could not finish. Please try again.'
+            : 'Google sign-in could not finish (${e.code.name}). Please try again.');
+      }
+    } on FirebaseAuthException catch (e) {
+      if (mounted) {
         setState(
-            () => error = 'Google sign-in could not finish. Please try again.');
+            () => error = 'Unable to sign in (${e.code}). Please try again.');
       }
     } catch (_) {
       if (mounted) {
