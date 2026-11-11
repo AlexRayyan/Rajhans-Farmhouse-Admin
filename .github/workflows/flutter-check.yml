@@ -35,12 +35,12 @@ jobs:
       - run: flutter analyze
       - run: flutter test
       - name: Verify Android release compilation (test signing)
-        run: flutter build apk --release --target-platform android-arm64
+        run: flutter build apk --release --target-platform android-arm64 --split-per-abi
       - name: Record APK signing certificate
         shell: bash
         run: |
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)"
-          "$APKSIGNER" verify --print-certs build/app/outputs/flutter-apk/app-release.apk > build/app/outputs/flutter-apk/signing-certificate.txt
+          "$APKSIGNER" verify --print-certs build/app/outputs/flutter-apk/app-arm64-v8a-release.apk > build/app/outputs/flutter-apk/signing-certificate.txt
           echo 'This APK uses a per-run test certificate. Register the SHA-1 and SHA-256 in Firebase before testing Google sign-in. Use a stable signing key for distribution.' > build/app/outputs/flutter-apk/README.txt
           echo '### Android test APK' >> "$GITHUB_STEP_SUMMARY"
           echo 'Google sign-in requires the certificate below to be registered in Firebase. Compilation success does not verify device sign-in.' >> "$GITHUB_STEP_SUMMARY"
@@ -49,6 +49,7 @@ jobs:
         with:
           name: android-compilation-check
           path: |
-            build/app/outputs/flutter-apk/app-release.apk
+            build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
             build/app/outputs/flutter-apk/signing-certificate.txt
             build/app/outputs/flutter-apk/README.txt
+

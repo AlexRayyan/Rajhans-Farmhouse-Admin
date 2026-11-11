@@ -1,31 +1,24 @@
 # Rajhans Farmhouse roadmap
 
-## Confirmed
+## Confirmed choices
 
-- Flutter/Dart; Android first, iOS after Android validation.
-- Firebase Spark only: Google authentication, Firestore Standard in Mumbai.
-- No Cloud Functions or paid backend service in this plan.
-- One exclusive 24-hour slot: 11 AM check-in, 11 AM checkout the following day in Asia/Kolkata.
-- Adjacent bookings meet at checkout; any future cleaning buffer requires an explicit rule change.
-- Integer paise; booking value is distinct from payments received.
+Flutter; Android first, iOS later. Firebase Spark only, Google authentication, Firestore Standard in Mumbai. One property; 1–31 nights, 11 AM check-in/out Asia/Kolkata. Adjacent bookings meet at checkout. Amounts stored in integer paise, separate from payments received.
 
-## Foundation
+## Implemented through 0.2.0
 
-Native Android configuration, Google auth/admin gate, month calendar and dashboard, atomic create/edit/cancel operations, slot locking and server-enforced rules. Core rules have thirteen emulator tests. Flutter startup/date/money tests are included.
+Login/admin gate; booking dashboard; current-month calendar; multi-day create/edit/cancel with atomic overlap protection; 2–100 guest wheel; readable dates and past-date guards; history-ranked amounts; Android recent calls/contacts; persistent themes; animated status/details and list filters; PDF booking bill with preview/sharing/WhatsApp handoff. Nine Flutter and fifteen rules tests; Android CI.
 
-## Remaining Android MVP
+## Next Android milestones
 
-1. Test Google login, access control and booking flows on a physical device.
-2. Finish the supplied visual design, customer directory, search/filter and persistent settings.
-3. Add an append-only payment/refund ledger with atomic balance validation, receipts and trustworthy collected/outstanding totals. Current bookings have zero collected payments.
-4. Add blocked-date operations, exports and recovery/backup policy.
-5. Profile startup, calendar scrolling, memory and network usage; measure release download size, configure production signing and validate APK/AAB.
+1. Physical-device checks for calls, contacts, theme restart, multi-day bookings and PDF/WhatsApp. Profile startup, scrolling, memory and network use.
+2. Append-only payment/refund ledger with validated balances. Only then label documents as payment receipts or report collected revenue.
+3. Full customer directory, blocked dates, expenses, financial reports, exports and recovery/backup policy.
+4. Stable protected signing key, Firebase certificate, distribution/architecture choices, store permission review and APK/AAB validation.
 
-## Operations and iOS
+## iOS and operations
 
-Expenses and monthly/yearly reports follow the core ledger. On Spark, reminders can be local-device notifications or user-initiated WhatsApp/SMS handoffs; automatic server scheduling is outside this plan. iOS needs native Firebase registration/configuration, macOS/Xcode, Apple signing and device testing.
+Native Firebase registration, macOS/Xcode, Apple signing and device testing follow Android acceptance. Android device bridge needs iOS equivalents for settings, contacts and PDF sharing. iOS does not expose call history to third-party apps; use contacts/manual entry.
 
-## Validation limits
+On Spark, reminders can use local notifications or user-initiated messaging. Automatic server scheduling requires a different plan. No billing upgrade performed.
 
-Passing emulator and unit tests does not replace real-device or release validation. No no-lag, binary-size or production-readiness claim is made without measurements. No billing upgrade has been performed.
-
+Automated checks do not establish device performance, automatic WhatsApp delivery or production readiness.

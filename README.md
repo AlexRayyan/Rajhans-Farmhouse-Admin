@@ -1,29 +1,30 @@
 # Rajhans Farmhouse Admin
 
-Android-first Flutter app for one exclusive farmhouse. Shared Dart code is intended for iOS later.
+Android-first Flutter admin app using Firebase Spark, Google sign-in and an operator-managed administrator allowlist. iOS follows Android validation.
 
-## Backend: Firebase Spark
+## Version 0.2.0
 
-Project: `rajhans-farmhouse-admin`. Firestore Standard: `(default)`, Mumbai (`asia-south1`). Google sign-in and an operator-managed `admins/{uid}` allowlist restrict access.
+- Past India calendar dates are blocked for new bookings and rescheduling, in both the app and Firestore rules. Historical records remain readable and cancellable.
+- Separate check-in/check-out dates support 1–31 nights at 11 AM Asia/Kolkata. Dates display as `24-Aug-2026`.
+- Smooth guest wheel selects 2–100 guests. Android recent-call selection requests permission when used; contacts and manual entry remain available.
+- Rounded amounts from ₹8,000 to ₹25,000 rank popular values from the latest 200 confirmed bookings, with defaults when history is limited.
+- Light/dark/system theme choices persist. Navy/violet panels, animated status badges, filters and calendar selection follow the supplied design direction.
+- Calendar cells show only the selected month's dates. Multi-day stays appear across occupied days and month boundaries.
+- Booking details generate a local PDF booking bill, offer preview/general sharing and open WhatsApp or WhatsApp Business with the attachment. WhatsApp may require recipient selection and always requires the user to tap Send.
 
-This version uses **Firestore client transactions and server-enforced Security Rules**, with no Cloud Functions, Cloud Storage or paid backend dependency. Spark quotas still apply. Availability confirmation requires an internet connection.
+Booking value is separate from payments received. This version records zero collected payments: the PDF is a booking bill, explicitly not proof of payment. The payment/refund ledger is a later milestone.
 
-Each booking occupies exactly **11 AM to 11 AM the next day, Asia/Kolkata**. Timestamps are stored in UTC; one canonical availability document identifies each 24-hour slot. Creation and rescheduling atomically reserve the slot. Cancellation retains the booking and releases its slot in the same transaction. Rules reject orphan locks, double bookings, forged audit data, invalid amounts and client privilege changes.
+## Spark backend
 
-Money is stored as integer paise. This foundation stores zero collected payments; the append-only payment/refund ledger is a later milestone. Do not use this build as a payment ledger.
+Project `rajhans-farmhouse-admin`, Firestore Standard in Mumbai. No Cloud Functions or paid backend dependency. Spark quotas apply; booking confirmation requires internet.
 
-## Implemented foundation
+Transactions atomically update the booking and `/availability/state`. A canonical daily-slot list protects the full stay; rules validate complete coverage, prevent overwriting occupied slots, release old slots on reschedule/cancellation, and check creation audit and revisions. Existing booking documents are preserved when the operator seeds the initial availability map. Legacy single-day clients must update after migration.
 
-- Native Android host, application ID `com.rajhansfarmhouse.admin`, Firebase client configuration and Google sign-in integration.
-- Administrator gate, dashboard booking count/value, month calendar, create/edit/cancel bookings and booking details/list.
-- Dark/light/system appearances; weekend tint/border; fixed 24-hour booking date picker.
-- Separate repository for Firestore operations, transaction-based slot protection, immutable creation audit fields and revision checks in rules.
-- Three Flutter tests and thirteen adversarial Firestore emulator tests, including simultaneous competing reservations.
-- GitHub Actions for static analysis, tests, security rules and Android compilation.
+The shared map is for this single farmhouse and bounded to 10,000 slots. Archive old locks through a reviewed operator procedure before that limit. Revisit for multiple properties or substantially higher traffic.
 
-## Development
+## Development and checks
 
-Use Flutter **3.47.9**, an Android SDK supporting API 36, NDK 28.2.13676358, and a compatible JDK. The Firestore emulator requires Java 21+. Install Node 22+ for rule tests.
+Flutter 3.47.9, Android API 36, NDK 28.2.13676358. Node 22+ and Java 21+ for rules tests.
 
 ```sh
 flutter pub get
@@ -31,22 +32,15 @@ flutter analyze
 flutter test
 npm ci
 npx -y firebase-tools@latest emulators:exec --project demo-rajhans --only firestore "npm run test:rules"
-flutter run
+flutter build apk --release --target-platform android-arm64 --split-per-abi
 ```
 
-The Android `google-services.json` is public Firebase client configuration, not an administrative credential. Never commit OAuth refresh tokens, service accounts, customer exports or signing keys. Debug certificates for this development machine are registered. A CI-generated APK uses a different certificate and is a compilation check, not a configured Google-login distribution build.
+Nine Flutter tests and fifteen adversarial Firestore tests cover dates, guests, amount ranking, theme storage, form/calendar rendering, overlaps/concurrency, rescheduling/cancellation, validation and access control. GitHub Actions runs checks and compiles an ARM64 test APK.
 
-For additional development machines, register their debug SHA-1/SHA-256 and fetch current native configuration through the Firebase CLI. Only a trusted project operator may create or revoke `admins/{uid}` entries; signed-in users cannot grant themselves access.
+Android call-log permission is restricted by installers and Google Play policy. Some devices refuse it; contacts/manual entry are supported. Review distribution eligibility before Play submission. Bulk call history stays on-device; only the selected caller is copied to a booking.
 
-Deploy approved rules and auth configuration with:
+## Distribution and remaining work
 
-```sh
-npx -y firebase-tools@latest deploy --project rajhans-farmhouse-admin --only firestore,auth
-```
+Test APKs use debug signing. GitHub runners generate different certificates; register each APK's SHA-1/SHA-256 in Firebase before Google login. Different keys may require uninstalling an older test build once. Use stable protected production signing before store distribution. Never commit credentials, signing keys or customer exports.
 
-## Release status
-
-This is an in-progress foundation. Payment history/receipts, customer directory, complete search/filter, blocked dates, reports/expenses, persistent settings and notifications remain. Physical-device login/booking checks and profiling are still required. Release builds currently use debug signing for testing; store distribution requires a dedicated signing key and its registered Firebase certificate. iOS native setup, Apple signing and device testing are deferred.
-
-See [the roadmap](docs/ROADMAP.md).
-
+Native call/contact/PDF/WhatsApp behavior and performance need physical-device validation. Payment ledger, full customer directory, expenses, blocked dates, notifications, exports/backup, production signing and iOS setup remain. Reports summarize booking values rather than received revenue. See [the roadmap](docs/ROADMAP.md).

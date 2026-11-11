@@ -22,3 +22,4 @@ android/local.properties
 android/.gradle/
 **/google-services.updated.json
 
+/android/.kotlin/

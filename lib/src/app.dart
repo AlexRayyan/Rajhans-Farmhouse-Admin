@@ -3,9 +3,16 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'screens.dart';
+import 'native_services.dart';
+import 'ui.dart' show farmhouseTheme;
 
 class RajhansApp extends StatefulWidget {
-  const RajhansApp({super.key, required this.firebaseReady, this.setupError});
+  const RajhansApp(
+      {super.key,
+      required this.firebaseReady,
+      this.setupError,
+      this.initialThemeMode = ThemeMode.dark});
+  final ThemeMode initialThemeMode;
   final bool firebaseReady;
   final String? setupError;
   @override
@@ -13,29 +20,24 @@ class RajhansApp extends StatefulWidget {
 }
 
 class _RajhansAppState extends State<RajhansApp> {
-  ThemeMode themeMode = ThemeMode.dark;
+  late ThemeMode themeMode = widget.initialThemeMode;
+  final messenger = GlobalKey<ScaffoldMessengerState>();
+  void changeTheme(ThemeMode value) {
+    setState(() => themeMode = value);
+    NativeServices.saveTheme(value).catchError((Object _) {
+      messenger.currentState?.showSnackBar(const SnackBar(
+          content: Text('Your theme could not be saved. Please try again.')));
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    ThemeData makeTheme(Brightness brightness) {
-      final dark = brightness == Brightness.dark;
-      return ThemeData(
-        useMaterial3: true,
-        brightness: brightness,
-        scaffoldBackgroundColor:
-            dark ? const Color(0xFF101525) : const Color(0xFFF5F6FB),
-        colorScheme: ColorScheme.fromSeed(
-            seedColor: const Color(0xFF6655F5), brightness: brightness),
-        cardTheme:
-            CardThemeData(color: dark ? const Color(0xFF192139) : Colors.white),
-        appBarTheme: const AppBarTheme(backgroundColor: Colors.transparent),
-      );
-    }
-
     return MaterialApp(
       title: 'Rajhans Farmhouse',
+      scaffoldMessengerKey: messenger,
       debugShowCheckedModeBanner: false,
-      theme: makeTheme(Brightness.light),
-      darkTheme: makeTheme(Brightness.dark),
+      theme: farmhouseTheme(Brightness.light),
+      darkTheme: farmhouseTheme(Brightness.dark),
       themeMode: themeMode,
       home: !widget.firebaseReady
           ? Scaffold(
@@ -57,7 +59,7 @@ class _RajhansAppState extends State<RajhansApp> {
                 if (snapshot.data == null) return const _LoginScreen();
                 return _AdminGate(
                   uid: snapshot.data!.uid,
-                  onThemeChanged: (value) => setState(() => themeMode = value),
+                  onThemeChanged: changeTheme,
                   themeMode: themeMode,
                 );
               },

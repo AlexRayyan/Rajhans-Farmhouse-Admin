@@ -1,9 +1,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
     <application
         android:label="Rajhans Farmhouse"
         android:name="${applicationName}"
         android:icon="@drawable/ic_rajhans">
+        <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.receipts" android:exported="false" android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/receipt_paths" />
+        </provider>
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -38,6 +42,9 @@
 
          In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
     <queries>
+        <package android:name="com.whatsapp" />
+        <package android:name="com.whatsapp.w4b" />
+        <intent><action android:name="android.intent.action.VIEW" /><data android:mimeType="application/pdf" /></intent>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>

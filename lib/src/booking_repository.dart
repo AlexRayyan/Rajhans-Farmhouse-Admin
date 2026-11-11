@@ -1,141 +1,200 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'booking_domain.dart';
+export 'booking_domain.dart';
 
-const propertyOffset = Duration(hours: 5, minutes: 30);
-
-/// 11 AM in Asia/Kolkata, independent of the phone's current timezone.
-DateTime propertyCheckIn(DateTime day) =>
-    DateTime.utc(day.year, day.month, day.day, 5, 30);
-DateTime propertyDate(DateTime instant) => instant.toUtc().add(propertyOffset);
-
-int? parsePaise(String input) {
-  final match = RegExp(r'^(\d{1,8})(?:\.(\d{1,2}))?$').firstMatch(input.trim());
-  if (match == null) return null;
-  final value =
-      int.parse(match[1]!) * 100 + int.parse((match[2] ?? '').padRight(2, '0'));
-  return value > 0 && value <= 1000000000 ? value : null;
-}
-
-String _dayKey(DateTime date) =>
-    '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
-
-Map<String, dynamic> bookingView(String id, Map<String, dynamic> data) {
-  final start = propertyDate((data['checkInAt'] as Timestamp).toDate());
-  final end = propertyDate((data['checkOutAt'] as Timestamp).toDate());
-  return {
-    ...data,
-    'id': id,
-    'checkInDate': _dayKey(start),
-    'checkOutDate': _dayKey(end)
-  };
-}
-
-class BookingConflict implements Exception {
-  @override
-  String toString() =>
-      'That date is already booked. Please choose another date.';
-}
-
-class BookingRepository {
+class BookingRepository implements BookingStore {
   BookingRepository({FirebaseFirestore? firestore, FirebaseAuth? auth})
       : _db = firestore ?? FirebaseFirestore.instance,
         _auth = auth ?? FirebaseAuth.instance;
   final FirebaseFirestore _db;
   final FirebaseAuth _auth;
+  Booking _fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final d = doc.data()!;
+    return Booking(
+        id: doc.id,
+        guestName: d['guestName'] as String,
+        phone: d['phone'] as String,
+        checkInAt: (d['checkInAt'] as Timestamp).toDate().toUtc(),
+        checkOutAt: (d['checkOutAt'] as Timestamp).toDate().toUtc(),
+        totalPaise: d['totalPaise'] as int,
+        paidPaise: d['paidPaise'] as int? ?? 0,
+        guestCount: d['guestCount'] as int? ?? 2,
+        status: d['status'] as String,
+        notes: d['notes'] as String? ?? '',
+        source: d['source'] as String? ?? 'phone',
+        revision: d['revision'] as int? ?? 0);
+  }
 
-  Stream<List<Map<String, dynamic>>> watchMonth(DateTime month) => _db
+  @override
+  Stream<List<Booking>> watchMonth(DateTime month) => _db
       .collection('bookings')
-      .where('checkInAt',
-          isGreaterThanOrEqualTo: Timestamp.fromDate(
-              propertyCheckIn(DateTime(month.year, month.month))))
       .where('checkInAt',
           isLessThan: Timestamp.fromDate(
               propertyCheckIn(DateTime(month.year, month.month + 1))))
+      .where('checkOutAt',
+          isGreaterThan: Timestamp.fromDate(
+              propertyCheckIn(DateTime(month.year, month.month))))
       .orderBy('checkInAt')
       .snapshots()
-      .map((snapshot) =>
-          snapshot.docs.map((doc) => bookingView(doc.id, doc.data())).toList());
+      .map((s) => s.docs.map(_fromDoc).toList());
+  @override
+  Stream<Booking?> watchBooking(String id) => _db
+      .collection('bookings')
+      .doc(id)
+      .snapshots()
+      .map((d) => d.exists ? _fromDoc(d) : null);
+  @override
+  Future<List<AmountSuggestion>> suggestedAmounts() async {
+    final recent = await _db
+        .collection('bookings')
+        .orderBy('createdAt', descending: true)
+        .limit(200)
+        .get();
+    return amountSuggestions(recent.docs
+        .where((d) => d.data()['status'] == 'confirmed')
+        .map((d) => d.data()['totalPaise'] as int));
+  }
 
-  Future<String> save({
-    required String guestName,
-    required String phone,
-    required DateTime day,
-    required int totalPaise,
-    String notes = '',
-    String source = 'phone',
-    int guestCount = 1,
-    String? id,
-  }) async {
+  @override
+  Future<String> save(
+      {required String guestName,
+      required String phone,
+      required DateTime day,
+      required DateTime checkout,
+      required int totalPaise,
+      required int guestCount,
+      String notes = '',
+      String source = 'phone',
+      String? id,
+      int? expectedRevision}) async {
     final uid = _auth.currentUser?.uid;
     if (uid == null) throw StateError('Please sign in again.');
-    final start = propertyCheckIn(day);
-    final slotId = start.millisecondsSinceEpoch.toString();
+    if (guestCount < 2 || guestCount > 100) {
+      throw ArgumentError('Choose between 2 and 100 guests.');
+    }
+    final start = propertyCheckIn(day), end = propertyCheckIn(checkout);
+    final keys = occupiedSlotKeys(start, end);
     final reference = id == null
         ? _db.collection('bookings').doc()
         : _db.collection('bookings').doc(id);
-    final slot = _db.collection('slots').doc(slotId);
-    await _db.runTransaction((transaction) async {
-      Map<String, dynamic>? previous;
-      if (id != null) {
-        previous = (await transaction.get(reference)).data();
-        if (previous == null || previous['status'] != 'confirmed') {
-          throw StateError('This booking is no longer available to edit.');
+    final availability = _db.collection('availability').doc('state');
+    final mutationId = _db.collection('bookings').doc().id;
+    await _db.runTransaction((tx) async {
+      final previousDoc = id == null ? null : await tx.get(reference);
+      final previous = previousDoc?.data();
+      if (id != null &&
+          (previous == null || previous['status'] != 'confirmed')) {
+        throw StateError('This booking is no longer available to edit.');
+      }
+      if (previous != null &&
+          expectedRevision != null &&
+          previous['revision'] != expectedRevision) {
+        throw StateError(
+            'This booking changed on another device. Reopen it before editing.');
+      }
+      final sameDates = previous != null &&
+          (previous['checkInAt'] as Timestamp).toDate().toUtc() == start &&
+          (previous['checkOutAt'] as Timestamp).toDate().toUtc() == end;
+      if (!canBookDay(day) && !sameDates) {
+        throw ArgumentError('Past dates cannot be booked.');
+      }
+      final state = (await tx.get(availability)).data();
+      if (state == null) {
+        throw StateError(
+            'Booking availability is being updated. Please try again shortly.');
+      }
+      final slots = Map<String, dynamic>.from(state['slots'] as Map);
+      for (final key in keys) {
+        if (slots[key] != null && slots[key] != reference.id) {
+          throw BookingConflict();
         }
       }
-      final occupied = await transaction.get(slot);
-      if (occupied.exists && occupied.data()?['bookingId'] != reference.id) {
-        throw BookingConflict();
+      if (previous != null) {
+        for (final key in occupiedSlotKeys(
+            (previous['checkInAt'] as Timestamp).toDate(),
+            (previous['checkOutAt'] as Timestamp).toDate())) {
+          if (slots[key] != reference.id) {
+            throw StateError(
+                'Availability needs review. Please contact the property owner.');
+          }
+          slots.remove(key);
+        }
       }
-      if (previous != null && previous['slotId'] != slotId) {
-        transaction
-            .delete(_db.collection('slots').doc(previous['slotId'] as String));
+      for (final key in keys) {
+        slots[key] = reference.id;
       }
       final now = FieldValue.serverTimestamp();
-      transaction.set(reference, {
+      tx.set(reference, {
         'guestName': guestName.trim(),
         'phone': phone.trim(),
         'checkInAt': Timestamp.fromDate(start),
-        'checkOutAt': Timestamp.fromDate(start.add(const Duration(hours: 24))),
-        'slotId': slotId,
+        'checkOutAt': Timestamp.fromDate(end),
+        'slotId': keys.first,
+        'slotIds': keys,
         'totalPaise': totalPaise,
         'paidPaise': previous?['paidPaise'] ?? 0,
         'status': 'confirmed',
+        'guestCount': guestCount,
         'notes': notes.trim(),
         'source': source,
-        'guestCount': guestCount,
         'createdBy': previous?['createdBy'] ?? uid,
         'updatedBy': uid,
         'createdAt': previous?['createdAt'] ?? now,
         'updatedAt': now,
         'revision': ((previous?['revision'] as int?) ?? -1) + 1,
+        'mutationId': mutationId,
       });
-      if (!occupied.exists) {
-        transaction.set(slot, {
-          'bookingId': reference.id,
-          'checkInAt': Timestamp.fromDate(start)
-        });
-      }
+      tx.set(availability, {
+        'slots': slots,
+        'revision': (state['revision'] as int) + 1,
+        'lastBookingId': reference.id,
+        'mutationId': mutationId,
+        'updatedAt': now
+      });
     });
     return reference.id;
   }
 
+  @override
   Future<void> cancel(String id) async {
     final uid = _auth.currentUser?.uid;
     if (uid == null) throw StateError('Please sign in again.');
-    final reference = _db.collection('bookings').doc(id);
-    await _db.runTransaction((transaction) async {
-      final previous = (await transaction.get(reference)).data();
+    final reference = _db.collection('bookings').doc(id),
+        availability = _db.collection('availability').doc('state');
+    final mutationId = _db.collection('bookings').doc().id;
+    await _db.runTransaction((tx) async {
+      final previous = (await tx.get(reference)).data();
+      final state = (await tx.get(availability)).data();
       if (previous == null || previous['status'] != 'confirmed') {
         throw StateError('This booking is already cancelled.');
       }
-      transaction.update(reference, {
+      if (state == null) throw StateError('Booking availability is not ready.');
+      final slots = Map<String, dynamic>.from(state['slots'] as Map);
+      for (final key in occupiedSlotKeys(
+          (previous['checkInAt'] as Timestamp).toDate(),
+          (previous['checkOutAt'] as Timestamp).toDate())) {
+        if (slots[key] != id) throw StateError('Availability needs review.');
+        slots.remove(key);
+      }
+      final now = FieldValue.serverTimestamp();
+      tx.update(reference, {
+        'slotIds': occupiedSlotKeys(
+            (previous['checkInAt'] as Timestamp).toDate(),
+            (previous['checkOutAt'] as Timestamp).toDate()),
         'status': 'cancelled',
         'updatedBy': uid,
-        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedAt': now,
         'revision': (previous['revision'] as int) + 1,
+        'mutationId': mutationId
       });
-      transaction
-          .delete(_db.collection('slots').doc(previous['slotId'] as String));
+      tx.set(availability, {
+        'slots': slots,
+        'revision': (state['revision'] as int) + 1,
+        'lastBookingId': id,
+        'mutationId': mutationId,
+        'updatedAt': now
+      });
     });
   }
 }
