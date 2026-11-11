@@ -2,17 +2,24 @@
 
 Android-first Flutter admin app using Firebase Spark, Google sign-in and an operator-managed administrator allowlist. iOS follows Android validation.
 
-## Version 0.2.0
+## Version 0.3.0
 
+- Date pickers grey out booked nights and reject checkout ranges crossing a booked night. An adjacent checkout/check-in on the same date remains valid.
 - Past India calendar dates are blocked for new bookings and rescheduling, in both the app and Firestore rules. Historical records remain readable and cancellable.
-- Separate check-in/check-out dates support 1–31 nights at 11 AM Asia/Kolkata. Dates display as `24-Aug-2026`.
+- Separate check-in/check-out dates support 1–31 nights at 11 AM Asia/Kolkata. Dates display as `Sunday, 29-Nov-2026`.
 - Smooth guest wheel selects 2–100 guests. Android recent-call selection requests permission when used; contacts and manual entry remain available.
 - Rounded amounts from ₹8,000 to ₹25,000 rank popular values from the latest 200 confirmed bookings, with defaults when history is limited.
 - Light/dark/system theme choices persist. Navy/violet panels, animated status badges, filters and calendar selection follow the supplied design direction.
 - Calendar cells show only the selected month's dates. Multi-day stays appear across occupied days and month boundaries.
 - Booking details generate a local PDF booking bill, offer preview/general sharing and open WhatsApp or WhatsApp Business with the attachment. WhatsApp may require recipient selection and always requires the user to tap Send.
 
-Booking value is separate from payments received. This version records zero collected payments: the PDF is a booking bill, explicitly not proof of payment. The payment/refund ledger is a later milestone.
+The booking form starts with customer name and keeps check-in/out cards side by side on small screens, as do booking details. Save opens the new booking's details automatically. Upcoming stays use a weekday/date tile.
+
+Advance/fully-paid choices record cumulative payment in integer paise, validated between zero and the total; remaining balance updates live. Admin corrections use the existing audit/revision checks. These are administrator-recorded amounts, not bank-verified transactions. A separate payment/refund ledger and cash-flow accounting remain later work. Cancellation preserves recorded payments and does not imply a refund.
+
+Booking codes use the India creation date: `RF121126`, then `RF121126-02`, etc. The shared availability transaction allocates a daily sequence. Server rules validate numbering and code immutability. New Firebase document IDs are `Customer Name - RF121126`; subsequent customer edits keep that stable document ID. Existing records were renamed atomically with lock references, retaining creation dates and data. A known duplicate was cancelled at the owner's instruction. The earlier operator migration's timezone-offset lock error was corrected using UTC timestamp parsing and checked against all active bookings.
+
+PDF files are named `Rajhans - Customer Name - RF121126.pdf`. The report tab now has occupancy/weekly-night charts, recorded payments/outstanding balance, arrival/cancellation counts, averages and booking-source breakdowns. Payment metrics count bookings in their check-in month; occupancy also includes overlapping stays from another month.
 
 ## Spark backend
 
@@ -35,7 +42,7 @@ npx -y firebase-tools@latest emulators:exec --project demo-rajhans --only firest
 flutter build apk --release --target-platform android-arm64 --split-per-abi
 ```
 
-Nine Flutter tests and fifteen adversarial Firestore tests cover dates, guests, amount ranking, theme storage, form/calendar rendering, overlaps/concurrency, rescheduling/cancellation, validation and access control. GitHub Actions runs checks and compiles an ARM64 test APK.
+Thirteen Flutter tests and eighteen adversarial Firestore tests cover dates, guests, amount ranking, theme storage, form/calendar rendering, overlaps/concurrency, rescheduling/cancellation, validation and access control. GitHub Actions runs checks and compiles an ARM64 test APK.
 
 Android call-log permission is restricted by installers and Google Play policy. Some devices refuse it; contacts/manual entry are supported. Review distribution eligibility before Play submission. Bulk call history stays on-device; only the selected caller is copied to a booking.
 
@@ -43,4 +50,4 @@ Android call-log permission is restricted by installers and Google Play policy. 
 
 Test APKs use debug signing. GitHub runners generate different certificates; register each APK's SHA-1/SHA-256 in Firebase before Google login. Different keys may require uninstalling an older test build once. Use stable protected production signing before store distribution. Never commit credentials, signing keys or customer exports.
 
-Native call/contact/PDF/WhatsApp behavior and performance need physical-device validation. Payment ledger, full customer directory, expenses, blocked dates, notifications, exports/backup, production signing and iOS setup remain. Reports summarize booking values rather than received revenue. See [the roadmap](docs/ROADMAP.md).
+Native call/contact/PDF/WhatsApp behavior and performance need physical-device validation. Payment/refund ledger, full customer directory, expenses, blocked dates, notifications, exports/backup, production signing and iOS setup remain. Reports distinguish booking value, recorded payment and remaining balance. See [the roadmap](docs/ROADMAP.md).

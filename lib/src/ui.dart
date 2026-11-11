@@ -6,7 +6,7 @@ String money(int paise) => NumberFormat.currency(
         locale: 'en_IN', symbol: '₹', decimalDigits: paise % 100 == 0 ? 0 : 2)
     .format(paise / 100);
 String readableDate(DateTime day) =>
-    DateFormat('dd-MMM-yyyy', 'en_US').format(day);
+    DateFormat('EEEE, dd-MMM-yyyy', 'en_US').format(day);
 const violet = Color(0xFF7560FF);
 const green = Color(0xFF36D69A);
 const amber = Color(0xFFF0B35C);
@@ -141,17 +141,21 @@ class BookingCard extends StatelessWidget {
               padding: const EdgeInsets.all(16),
               child:
                   Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                CircleAvatar(
-                    backgroundColor: violet.withValues(alpha: .2),
-                    child: Text(
-                        booking.guestName.trim().isEmpty
-                            ? 'G'
-                            : booking.guestName
-                                .trim()
-                                .substring(0, 1)
-                                .toUpperCase(),
-                        style: const TextStyle(
-                            color: violet, fontWeight: FontWeight.bold))),
+                Container(
+                    width: 58,
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    decoration: BoxDecoration(
+                        color: violet.withValues(alpha: .15),
+                        borderRadius: BorderRadius.circular(14)),
+                    child: Column(children: [
+                      Text(DateFormat('EEE', 'en_US').format(booking.arrival),
+                          style: const TextStyle(
+                              color: violet, fontWeight: FontWeight.w600)),
+                      Text('${booking.arrival.day}',
+                          style: Theme.of(context).textTheme.headlineSmall),
+                      Text(DateFormat('MMM', 'en_US').format(booking.arrival),
+                          style: Theme.of(context).textTheme.labelSmall)
+                    ])),
                 const SizedBox(width: 12),
                 Expanded(
                     child: Column(
@@ -177,4 +181,38 @@ class BookingCard extends StatelessWidget {
                     ])),
                 const Icon(Icons.chevron_right, size: 18),
               ]))));
+}
+
+class BookingDateCard extends StatelessWidget {
+  const BookingDateCard(
+      {super.key, required this.label, required this.date, this.onTap});
+  final String label;
+  final DateTime date;
+  final VoidCallback? onTap;
+  @override
+  Widget build(BuildContext context) => Panel(
+      padding: EdgeInsets.zero,
+      child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(20),
+          child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      const Icon(Icons.calendar_month_outlined,
+                          size: 17, color: violet),
+                      const SizedBox(width: 6),
+                      Expanded(
+                          child: Text(label,
+                              style: Theme.of(context).textTheme.bodySmall))
+                    ]),
+                    const SizedBox(height: 10),
+                    Text(readableDate(date),
+                        style: Theme.of(context).textTheme.titleSmall),
+                    const SizedBox(height: 5),
+                    const Text('11:00 AM',
+                        style: TextStyle(color: violet, fontSize: 12)),
+                  ]))));
 }

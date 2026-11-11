@@ -10,13 +10,19 @@ import 'package:rajhans_farmhouse_admin/src/booking_domain.dart';
 import 'package:rajhans_farmhouse_admin/src/calendar_screen.dart';
 import 'package:rajhans_farmhouse_admin/src/native_services.dart';
 import 'package:rajhans_farmhouse_admin/src/ui.dart';
+import 'package:rajhans_farmhouse_admin/src/reports_screen.dart';
+import 'package:rajhans_farmhouse_admin/src/booking_details.dart';
 
 class FakeStore implements BookingStore {
+  FakeStore({this.slots = const {}});
+  final Map<String, String> slots;
   Map<String, Object?>? saved;
   @override
   Stream<List<Booking>> watchMonth(DateTime month) => Stream.value([]);
   @override
   Stream<Booking?> watchBooking(String id) => Stream.value(null);
+  @override
+  Stream<Map<String, String>> watchOccupiedSlots() => Stream.value(slots);
   @override
   Future<List<AmountSuggestion>> suggestedAmounts() async =>
       amountSuggestions([1500000, 1500000, 1000000]);
@@ -30,6 +36,7 @@ class FakeStore implements BookingStore {
       required DateTime checkout,
       required int totalPaise,
       required int guestCount,
+      int paidPaise = 0,
       String notes = '',
       String source = 'phone',
       String? id,
@@ -40,7 +47,8 @@ class FakeStore implements BookingStore {
       'day': day,
       'checkout': checkout,
       'totalPaise': totalPaise,
-      'guestCount': guestCount
+      'guestCount': guestCount,
+      'paidPaise': paidPaise
     };
     return 'test-booking';
   }
@@ -163,14 +171,16 @@ void main() {
     await tester.ensureVisible(find.byKey(const ValueKey('amount-1500000')));
     await tester.tap(find.byKey(const ValueKey('amount-1500000')));
     await tester.pump();
-    await tester.ensureVisible(find.byKey(const ValueKey('save-booking')));
+    await tester.scrollUntilVisible(
+        find.byKey(const ValueKey('save-booking')), 250,
+        scrollable: find.byType(Scrollable).first);
     await tester.tap(find.byKey(const ValueKey('save-booking')));
     await tester.pumpAndSettle();
     expect(store.saved?['guestCount'], 100);
     expect(store.saved?['totalPaise'], 1500000);
     expect(store.saved?['day'], DateTime(futureYear, 8, 24));
     expect(store.saved?['checkout'], DateTime(futureYear, 8, 27));
-    expect(find.text('Open'), findsOneWidget);
+    expect(find.text('Booking Details'), findsOneWidget);
   });
   testWidgets(
       'editable multi-day dates are readable and small-screen form renders',
@@ -231,5 +241,150 @@ void main() {
     final button = tester
         .widget<FilledButton>(find.widgetWithText(FilledButton, 'Add booking'));
     expect(button.onPressed, isNull);
+  });
+  test('readable codes, safe document names and cross-month report totals', () {
+    expect(readableBookingCode('121126', 1), 'RF121126');
+    expect(readableBookingCode('121126', 2), 'RF121126-02');
+    expect(bookingDocumentName('Ayesha / Khan', 'RF121126'),
+        'Ayesha - Khan - RF121126');
+    expect(readableDate(DateTime(2026, 11, 29)), 'Sunday, 29-Nov-2026');
+    Booking sample(String id, DateTime start, DateTime end, int total, int paid,
+            {String status = 'confirmed'}) =>
+        Booking(
+            id: id,
+            guestName: 'Sample Guest',
+            phone: '+919876543210',
+            checkInAt: start,
+            checkOutAt: end,
+            totalPaise: total,
+            paidPaise: paid,
+            guestCount: 2,
+            status: status);
+    final report = BookingReport(DateTime(2027, 2), [
+      sample('carry', DateTime.utc(2027, 1, 30, 5, 30),
+          DateTime.utc(2027, 2, 3, 5, 30), 1200000, 500000),
+      sample('new', DateTime.utc(2027, 2, 5, 5, 30),
+          DateTime.utc(2027, 2, 8, 5, 30), 1800000, 600000),
+      sample('cancel', DateTime.utc(2027, 2, 10, 5, 30),
+          DateTime.utc(2027, 2, 12, 5, 30), 800000, 0,
+          status: 'cancelled'),
+    ]);
+    expect(report.occupiedNights, 5);
+    expect(report.total, 1800000);
+    expect(report.paid, 600000);
+    expect(report.outstanding, 1200000);
+    expect(report.cancellations, 1);
+  });
+  testWidgets(
+      'picker disables booked nights and checkout across an occupied stay',
+      (tester) async {
+    final date = DateTime(futureYear, 8, 26),
+        slots = {
+          propertyCheckIn(date).millisecondsSinceEpoch.toString(): 'other'
+        };
+    await tester.pumpWidget(shell(AddBooking(
+        initialDate: DateTime(futureYear, 8, 24),
+        store: FakeStore(slots: slots))));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Check-in'));
+    await tester.pumpAndSettle();
+    final incoming =
+        tester.widget<DatePickerDialog>(find.byType(DatePickerDialog));
+    expect(incoming.selectableDayPredicate!(date), isFalse);
+    expect(
+        incoming.selectableDayPredicate!(DateTime(futureYear, 8, 27)), isTrue);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Check-out'));
+    await tester.pumpAndSettle();
+    final outgoing =
+        tester.widget<DatePickerDialog>(find.byType(DatePickerDialog));
+    expect(outgoing.selectableDayPredicate!(date), isTrue);
+    expect(
+        outgoing.selectableDayPredicate!(DateTime(futureYear, 8, 27)), isFalse);
+  });
+  testWidgets(
+      'advance and fully-paid choices update balance and save opens details',
+      (tester) async {
+    tester.view.physicalSize = const Size(360, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final store = FakeStore();
+    await tester.pumpWidget(MaterialApp(
+        theme: farmhouseTheme(Brightness.light),
+        home: RepaintBoundary(
+            key: const ValueKey('capture'),
+            child: AddBooking(
+                initialDate: DateTime(futureYear, 11, 29), store: store))));
+    await tester.pumpAndSettle();
+    expect(find.text('Rajhans Farmhouse'), findsNothing);
+    expect(tester.getTopLeft(find.text('Check-in')).dy,
+        closeTo(tester.getTopLeft(find.text('Check-out')).dy, 1));
+    await tester.enterText(
+        find.byKey(const ValueKey('guest-name')), 'Ayesha Khan');
+    await tester.enterText(
+        find.byKey(const ValueKey('phone')), '+919876543210');
+    await tester.scrollUntilVisible(find.byKey(const ValueKey('amount')), 150,
+        scrollable: find.byType(Scrollable).first);
+    await tester.enterText(find.byKey(const ValueKey('amount')), '20000');
+    await tester.scrollUntilVisible(
+        find.byKey(const ValueKey('advance-amount')), 180,
+        scrollable: find.byType(Scrollable).first);
+    await tester.enterText(
+        find.byKey(const ValueKey('advance-amount')), '5000');
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('Remaining balance'), 120,
+        scrollable: find.byType(Scrollable).first);
+    expect(find.text(money(1500000)), findsWidgets);
+    await tester.ensureVisible(find.byKey(const ValueKey('full-mode')));
+    await tester.tap(find.byKey(const ValueKey('full-mode')));
+    await tester.pumpAndSettle();
+    expect(find.text(money(0)), findsOneWidget);
+    await tester.scrollUntilVisible(
+        find.byKey(const ValueKey('save-booking')), 220,
+        scrollable: find.byType(Scrollable).first);
+    await tester.tap(find.byKey(const ValueKey('save-booking')));
+    await tester.pumpAndSettle();
+    expect(store.saved?['paidPaise'], 2000000);
+    expect(find.text('Booking Details'), findsOneWidget);
+    expect(tester.getTopLeft(find.text('Check-in')).dy,
+        closeTo(tester.getTopLeft(find.text('Check-out')).dy, 1));
+  });
+  testWidgets(
+      'reports have occupancy, payments and source insights with sample data',
+      (tester) async {
+    tester.view.physicalSize = const Size(400, 960);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final sample = Booking(
+        id: 'Ayesha Khan - RF121126',
+        bookingCode: 'RF121126',
+        guestName: 'Ayesha Khan',
+        phone: '+919876543210',
+        checkInAt: DateTime.utc(futureYear, 11, 20, 5, 30),
+        checkOutAt: DateTime.utc(futureYear, 11, 23, 5, 30),
+        totalPaise: 2000000,
+        paidPaise: 500000,
+        guestCount: 12);
+    await tester.pumpWidget(shell(RepaintBoundary(
+        key: const ValueKey('capture'),
+        child: Scaffold(
+            body: ReportsScreen(
+                month: DateTime(futureYear, 11),
+                bookings: [sample],
+                onMonthChanged: (_) {})))));
+    await tester.pumpAndSettle();
+    expect(find.text('Monthly performance'), findsOneWidget);
+    expect(find.text('Weekly occupied nights'), findsOneWidget);
+    await capture(tester, 'reports');
+    await tester.pumpWidget(MaterialApp(
+        theme: farmhouseTheme(Brightness.light),
+        home: RepaintBoundary(
+            key: const ValueKey('capture'),
+            child: BookingDetails(booking: sample, store: FakeStore()))));
+    await tester.pumpAndSettle();
+    await capture(tester, 'booking-details');
   });
 }

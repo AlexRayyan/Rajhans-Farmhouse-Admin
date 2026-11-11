@@ -4,14 +4,14 @@
 
 Flutter; Android first, iOS later. Firebase Spark only, Google authentication, Firestore Standard in Mumbai. One property; 1–31 nights, 11 AM check-in/out Asia/Kolkata. Adjacent bookings meet at checkout. Amounts stored in integer paise, separate from payments received.
 
-## Implemented through 0.2.0
+## Implemented through 0.3.0
 
-Login/admin gate; booking dashboard; current-month calendar; multi-day create/edit/cancel with atomic overlap protection; 2–100 guest wheel; readable dates and past-date guards; history-ranked amounts; Android recent calls/contacts; persistent themes; animated status/details and list filters; PDF booking bill with preview/sharing/WhatsApp handoff. Nine Flutter and fifteen rules tests; Android CI.
+Login/admin gate; booking dashboard; current-month calendar; multi-day create/edit/cancel with atomic overlap protection; 2–100 guest wheel; readable dates and past-date guards; history-ranked amounts; Android recent calls/contacts; persistent themes; animated status/details and list filters; PDF booking bill with preview/sharing/WhatsApp handoff; readable booking codes/document names; blocked-night date picker; useful occupancy/payment/source reports; side-by-side day/date cards and automatic details navigation. Thirteen Flutter and eighteen rules tests; Android CI.
 
 ## Next Android milestones
 
 1. Physical-device checks for calls, contacts, theme restart, multi-day bookings and PDF/WhatsApp. Profile startup, scrolling, memory and network use.
-2. Append-only payment/refund ledger with validated balances. Only then label documents as payment receipts or report collected revenue.
+2. Append-only payment/refund ledger and reconciliation. Booking forms now record advance/full payment with validated balances; reports and PDFs show these admin-recorded amounts.
 3. Full customer directory, blocked dates, expenses, financial reports, exports and recovery/backup policy.
 4. Stable protected signing key, Firebase certificate, distribution/architecture choices, store permission review and APK/AAB validation.
 

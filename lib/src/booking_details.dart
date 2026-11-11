@@ -134,30 +134,29 @@ class _BookingDetailsState extends State<BookingDetails> {
                     ]),
                   ])),
                   const SizedBox(height: 16),
-                  Panel(
-                      child: Column(children: [
-                    _Row('Check-in', readableDate(booking.arrival)),
-                    const SizedBox(height: 8),
-                    const _Row('', '11:00 AM'),
-                    const Divider(height: 28),
-                    _Row('Check-out', readableDate(booking.departure)),
-                    const SizedBox(height: 8),
-                    const _Row('', '11:00 AM')
-                  ])),
+                  Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Expanded(
+                        child: BookingDateCard(
+                            label: 'Check-in', date: booking.arrival)),
+                    const SizedBox(width: 10),
+                    Expanded(
+                        child: BookingDateCard(
+                            label: 'Check-out', date: booking.departure))
+                  ]),
                   const SizedBox(height: 16),
                   Panel(
                       child: Column(children: [
                     _Row('Booking amount', money(booking.totalPaise),
                         large: true),
                     const Divider(height: 28),
-                    _Row('Payments recorded', money(booking.paidPaise)),
+                    _Row('Advance / paid', money(booking.paidPaise)),
                     const SizedBox(height: 14),
                     _Row('Balance due',
                         money(booking.totalPaise - booking.paidPaise),
                         color: amber),
                     const SizedBox(height: 14),
                     const Text(
-                        'The receipt is a booking bill. It does not confirm payment.',
+                        'Payments shown are recorded by the farmhouse admin.',
                         style: TextStyle(fontSize: 12))
                   ])),
                   const SizedBox(height: 16),
@@ -169,7 +168,7 @@ class _BookingDetailsState extends State<BookingDetails> {
                         const SizedBox(height: 12),
                         Text('Booking ID',
                             style: Theme.of(context).textTheme.bodySmall),
-                        SelectableText(booking.id,
+                        SelectableText(booking.displayId,
                             style: Theme.of(context).textTheme.labelMedium),
                         if (booking.notes.isNotEmpty) ...[
                           const Divider(height: 28),

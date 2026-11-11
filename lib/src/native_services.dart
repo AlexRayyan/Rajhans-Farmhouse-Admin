@@ -37,13 +37,15 @@ class NativeServices {
 
   static Future<void> receipt(Booking booking, {String action = 'view'}) async {
     await channel.invokeMethod<void>('receipt', {
-      'id': booking.id,
+      'id': booking.displayId,
       'guestName': booking.guestName,
       'phone': booking.phone,
       'guestCount': booking.guestCount,
       'status': booking.statusLabel(),
-      'checkIn': DateFormat('dd-MMM-yyyy').format(booking.arrival),
-      'checkOut': DateFormat('dd-MMM-yyyy').format(booking.departure),
+      'checkIn':
+          DateFormat('EEEE, dd-MMM-yyyy', 'en_US').format(booking.arrival),
+      'checkOut':
+          DateFormat('EEEE, dd-MMM-yyyy', 'en_US').format(booking.departure),
       'nights': booking.nights,
       'totalPaise': booking.totalPaise,
       'paidPaise': booking.paidPaise,

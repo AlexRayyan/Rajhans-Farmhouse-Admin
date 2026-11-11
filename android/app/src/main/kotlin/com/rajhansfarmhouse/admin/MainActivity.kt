@@ -116,9 +116,10 @@ class MainActivity : FlutterActivity() {
     }
     private fun buildReceipt(data: Map<*, *>): File {
         val directory = File(cacheDir, "receipts").apply { mkdirs() }
-        val safeId = data["id"].toString().replace(Regex("[^A-Za-z0-9]"), "").take(24)
+        val safeId = data["id"].toString().replace(Regex("[^A-Za-z0-9-]"), "").take(40)
+        val customer = data["guestName"].toString().replace(Regex("[\\\\/:*?\"<>|\\p{Cntrl}]"), "-").trim().take(100).ifBlank { "Guest" }
         require(safeId.isNotEmpty())
-        val file = File(directory, "Rajhans-$safeId-${System.currentTimeMillis()}.pdf")
+        val file = File(directory, "Rajhans - $customer - $safeId.pdf")
         val pdf = PdfDocument()
         try {
             val page = pdf.startPage(PdfDocument.PageInfo.Builder(595, 842, 1).create())
@@ -159,7 +160,7 @@ class MainActivity : FlutterActivity() {
             y += 20f
             row("Booking amount", currency(total)); row("Payments recorded", currency(paid)); row("Balance due", currency(total - paid))
             line("All dates and times use Asia/Kolkata.", 36f, 733f, 10f)
-            line("This bill confirms a booking, not receipt of payment.", 36f, 754f, 10f)
+            line("Payments shown are recorded by the farmhouse admin.", 36f, 754f, 10f)
             line("Thank you for choosing Rajhans Farmhouse.", 36f, 791f, 12f, true)
             pdf.finishPage(page)
             file.outputStream().use { pdf.writeTo(it) }

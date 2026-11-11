@@ -15,12 +15,14 @@ bool canBookDay(DateTime day, {DateTime? now}) =>
 int stayNights(DateTime start, DateTime end) =>
     propertyCheckIn(end).difference(propertyCheckIn(start)).inDays;
 
-int? parsePaise(String input) {
+int? parsePaise(String input, {bool allowZero = false}) {
   final match = RegExp(r'^(\d{1,8})(?:\.(\d{1,2}))?$').firstMatch(input.trim());
   if (match == null) return null;
   final value =
       int.parse(match[1]!) * 100 + int.parse((match[2] ?? '').padRight(2, '0'));
-  return value > 0 && value <= 1000000000 ? value : null;
+  return (value > 0 || allowZero && value == 0) && value <= 1000000000
+      ? value
+      : null;
 }
 
 List<String> occupiedSlotKeys(DateTime start, DateTime end) {
@@ -50,8 +52,12 @@ class Booking {
       this.status = 'confirmed',
       this.source = 'phone',
       this.notes = '',
-      this.revision = 0});
-  final String id, guestName, phone, status, source, notes;
+      this.revision = 0,
+      this.bookingCode = ''});
+  final String id, guestName, phone, status, source, notes, bookingCode;
+  String get displayId => bookingCode.isNotEmpty
+      ? bookingCode
+      : RegExp(r'RF[0-9]{6}(?:-[0-9]{2,4})?$').firstMatch(id)?.group(0) ?? id;
   final DateTime checkInAt, checkOutAt;
   final int totalPaise, paidPaise, guestCount, revision;
   DateTime get arrival => propertyDay(checkInAt);
@@ -109,6 +115,7 @@ List<AmountSuggestion> amountSuggestions(Iterable<int> history) {
 abstract class BookingStore {
   Stream<List<Booking>> watchMonth(DateTime month);
   Stream<Booking?> watchBooking(String id);
+  Stream<Map<String, String>> watchOccupiedSlots();
   Future<List<AmountSuggestion>> suggestedAmounts();
   Future<String> save(
       {required String guestName,
@@ -117,6 +124,7 @@ abstract class BookingStore {
       required DateTime checkout,
       required int totalPaise,
       required int guestCount,
+      int paidPaise = 0,
       String notes = '',
       String source = 'phone',
       String? id,
@@ -128,4 +136,25 @@ class BookingConflict implements Exception {
   @override
   String toString() =>
       'One or more selected dates are already booked. Please choose another stay.';
+}
+
+String bookingDateCode(DateTime day) =>
+    '${day.day.toString().padLeft(2, '0')}${day.month.toString().padLeft(2, '0')}${(day.year % 100).toString().padLeft(2, '0')}';
+String readableBookingCode(String date, int number) =>
+    'RF$date${number == 1 ? '' : '-${number.toString().padLeft(2, '0')}'}';
+String bookingDocumentName(String guest, String code) {
+  final safe = guest
+      .trim()
+      .replaceAll(RegExp(r'[/\\\u0000-\u001f]'), '-')
+      .replaceAll(RegExp(r'\s+'), ' ');
+  return '$safe - $code';
+}
+
+bool stayAvailable(DateTime start, DateTime end, Map<String, String> slots,
+    {String? excluding}) {
+  if (stayNights(start, end) < 1 || stayNights(start, end) > maxStayNights) {
+    return false;
+  }
+  return occupiedSlotKeys(propertyCheckIn(start), propertyCheckIn(end))
+      .every((key) => slots[key] == null || slots[key] == excluding);
 }

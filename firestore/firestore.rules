@@ -5,6 +5,9 @@ rules_version = '2';
 // bookings (legacy 1-guest records remain cancellable), integer paise, UTC
 // checkInAt/checkOutAt, slotId=first slot epoch millis, status, immutable
 // creation audit, updated audit, monotonic revision, unique mutationId.
+// Optional immutable bookingCode: RFddMMyy[-NN]. paidPaise: admin-recorded
+// cumulative payment, integer 0..totalPaise; audit/revision applies to corrections.
+// Optional availability sequenceDate/sequenceNumber allocate codes atomically.
 // availability/state: slots map {epochMillis: bookingId}, revision,
 // lastBookingId, mutationId, updatedAt. Provisioned/migrated by an operator.
 // One shared availability document avoids per-night Rules document-read limits.
@@ -26,12 +29,13 @@ service cloud.firestore {
       return d.keys().hasAll(['guestName','phone','notes','source','guestCount','totalPaise','paidPaise',
           'checkInAt','checkOutAt','slotId','slotIds','status','createdBy','updatedBy','createdAt','updatedAt','revision','mutationId'])
         && d.keys().hasOnly(['guestName','phone','notes','source','guestCount','totalPaise','paidPaise',
-          'checkInAt','checkOutAt','slotId','slotIds','status','createdBy','updatedBy','createdAt','updatedAt','revision','mutationId'])
+          'checkInAt','checkOutAt','slotId','slotIds','status','createdBy','updatedBy','createdAt','updatedAt','revision','mutationId','bookingCode'])
         && text(d.guestName,2,120) && text(d.phone,8,20) && d.phone.matches('^[+0-9 ()-]{8,20}$')
         && text(d.notes,0,1000) && d.source in ['phone','whatsapp','walk-in','other']
         && d.guestCount is int && d.guestCount >= 1 && d.guestCount <= 100
         && d.totalPaise is int && d.totalPaise > 0 && d.totalPaise <= 1000000000
-        && d.paidPaise is int && d.paidPaise == 0
+        && d.paidPaise is int && d.paidPaise >= 0 && d.paidPaise <= d.totalPaise
+        && (!('bookingCode' in d) || text(d.bookingCode,8,13) && d.bookingCode.matches('^RF[0-9]{6}(-[0-9]{2,4})?$'))
         && d.checkInAt is timestamp && d.checkOutAt is timestamp
         && d.checkInAt >= timestamp.date(2020,1,1) && d.checkInAt < timestamp.date(2100,1,1)
         && d.checkInAt.hours() == 5 && d.checkInAt.minutes() == 30
@@ -90,12 +94,35 @@ service cloud.firestore {
     }
     function isValidAvailability(d) {
       return d.keys().hasAll(['slots','revision','lastBookingId','mutationId','updatedAt'])
-        && d.keys().hasOnly(['slots','revision','lastBookingId','mutationId','updatedAt'])
+        && d.keys().hasOnly(['slots','revision','lastBookingId','mutationId','updatedAt','sequenceDate','sequenceNumber'])
         && d.slots is map && d.slots.size() <= 10000
         && d.revision is int && d.revision == resource.data.revision + 1
-        && text(d.lastBookingId,20,20) && d.lastBookingId.matches('^[A-Za-z0-9]{20}$')
+        && text(d.lastBookingId,1,160) && !d.lastBookingId.matches('.*[/].*')
         && text(d.mutationId,20,20) && d.mutationId.matches('^[A-Za-z0-9]{20}$')
         && d.mutationId != resource.data.mutationId && d.updatedAt == request.time;
+    }
+    function pad(n) { return n < 10 ? '0' + string(n) : string(n); }
+    function creationDate() {
+      let date = request.time + duration.value(330,'m');
+      return pad(date.day()) + pad(date.month()) + pad(date.year() % 100);
+    }
+    function validCode(d,id) {
+      let state = getAfter(/databases/$(database)/documents/availability/state).data;
+      let number = state.sequenceNumber;
+      return d.bookingCode == 'RF' + state.sequenceDate + (number == 1 ? '' : '-' + pad(number))
+        && text(id,1,160) && id.matches('^.{1,120} - ' + d.bookingCode + '$');
+    }
+    function sequenceUnchanged(d) {
+      return d.get('sequenceDate','') == resource.data.get('sequenceDate','')
+        && d.get('sequenceNumber',0) == resource.data.get('sequenceNumber',0);
+    }
+    function validSequence(d) {
+      let existed = exists(/databases/$(database)/documents/bookings/$(d.lastBookingId));
+      let booking = getAfter(/databases/$(database)/documents/bookings/$(d.lastBookingId)).data;
+      return existed || !('bookingCode' in booking) ? sequenceUnchanged(d)
+        : d.sequenceDate == creationDate() && d.sequenceNumber is int
+          && d.sequenceNumber >= 1 && d.sequenceNumber <= 9999
+          && d.sequenceNumber == (resource.data.get('sequenceDate','') == d.sequenceDate ? resource.data.get('sequenceNumber',0) + 1 : 1);
     }
     function validAvailabilityTransition(d) {
       let existed = exists(/databases/$(database)/documents/bookings/$(d.lastBookingId));
@@ -119,13 +146,15 @@ service cloud.firestore {
     }
     match /bookings/{id} {
       allow read: if isAdmin();
-      allow create: if isAdmin() && id.matches('^[A-Za-z0-9]{20}$') && isValidBooking(request.resource.data)
+      allow create: if isAdmin() && isValidBooking(request.resource.data)
+        && ('bookingCode' in request.resource.data ? validCode(request.resource.data,id) : id.matches('^[A-Za-z0-9]{20}$'))
         && request.resource.data.guestCount >= 2 && uidUnchanged(request.resource.data)
         && request.resource.data.createdAt == request.time && request.resource.data.revision == 0
         && request.resource.data.status == 'confirmed' && request.resource.data.checkInAt >= todayCheckIn()
         && stateChangedWith(request.resource.data,id);
       allow update: if isAdmin() && isValidBooking(request.resource.data) && uidNotModified(request.resource.data)
         && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.get('bookingCode','') == resource.data.get('bookingCode','')
         && request.resource.data.revision == resource.data.revision + 1
         && request.resource.data.mutationId != resource.data.get('mutationId','')
         && resource.data.status == 'confirmed'
@@ -139,7 +168,7 @@ service cloud.firestore {
     }
     match /availability/state {
       allow read: if isAdmin();
-      allow update: if isAdmin() && isValidAvailability(request.resource.data) && validAvailabilityTransition(request.resource.data);
+      allow update: if isAdmin() && isValidAvailability(request.resource.data) && validAvailabilityTransition(request.resource.data) && validSequence(request.resource.data);
       allow create, delete: if false;
     }
     match /{document=**} { allow read, write: if false; }

@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'booking_details.dart';
 import 'guest_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -20,11 +22,17 @@ class _AddBookingState extends State<AddBooking> {
   final name = TextEditingController(),
       phone = TextEditingController(),
       amount = TextEditingController(),
-      notes = TextEditingController();
+      notes = TextEditingController(),
+      advance = TextEditingController(text: '0');
   late final BookingStore store;
   late DateTime arrival, departure;
   int guests = 2;
   String source = 'phone';
+  String paymentMode = 'advance';
+  Map<String, String> occupied = {};
+  bool availabilityReady = false;
+  StreamSubscription<Map<String, String>>? availability;
+  String? availabilityError;
   bool saving = false, readingCalls = false;
   String? error;
   List<AmountSuggestion> suggestions = amountSuggestions([]);
@@ -45,9 +53,29 @@ class _AddBookingState extends State<AddBooking> {
       phone.text = booking.phone;
       amount.text = (booking.totalPaise / 100).toStringAsFixed(2);
       notes.text = booking.notes;
+      advance.text = (booking.paidPaise / 100).toStringAsFixed(2);
+      paymentMode =
+          booking.paidPaise == booking.totalPaise ? 'full' : 'advance';
       guests = booking.guestCount.clamp(2, 100);
       source = booking.source;
     }
+    availability = store.watchOccupiedSlots().listen((slots) {
+      if (mounted) {
+        setState(() {
+          occupied = slots;
+          availabilityReady = true;
+          availabilityError = null;
+        });
+      }
+    }, onError: (Object _) {
+      if (mounted) {
+        setState(() {
+          availabilityReady = false;
+          availabilityError =
+              'Unable to load available dates. Check your connection and reopen this form.';
+        });
+      }
+    });
     store.suggestedAmounts().then((data) {
       if (mounted) setState(() => suggestions = data);
     }).catchError((Object _) {});
@@ -55,6 +83,8 @@ class _AddBookingState extends State<AddBooking> {
 
   @override
   void dispose() {
+    availability?.cancel();
+    advance.dispose();
     name.dispose();
     phone.dispose();
     amount.dispose();
@@ -63,6 +93,10 @@ class _AddBookingState extends State<AddBooking> {
   }
 
   Future<void> pickDate(bool checkIn) async {
+    if (!availabilityReady) {
+      message(availabilityError ?? 'Loading available dates…');
+      return;
+    }
     final today = propertyDay(DateTime.now());
     final first = checkIn
         ? today
@@ -73,10 +107,27 @@ class _AddBookingState extends State<AddBooking> {
     var initial = checkIn ? arrival : departure;
     if (initial.isBefore(first)) initial = first;
     if (initial.isAfter(last)) initial = last;
+    bool selectable(DateTime day) => checkIn
+        ? (occupied[propertyCheckIn(day).millisecondsSinceEpoch.toString()] ==
+                null ||
+            occupied[propertyCheckIn(day).millisecondsSinceEpoch.toString()] ==
+                widget.booking?.id)
+        : stayAvailable(arrival, day, occupied, excluding: widget.booking?.id);
+    if (!selectable(initial)) {
+      initial = first;
+      while (!selectable(initial) && initial.isBefore(last)) {
+        initial = DateTime(initial.year, initial.month, initial.day + 1);
+      }
+      if (!selectable(initial)) {
+        message('No available dates in this range. Choose another check-in.');
+        return;
+      }
+    }
     final result = await showDatePicker(
         context: context,
         initialDate: initial,
         firstDate: first,
+        selectableDayPredicate: selectable,
         lastDate: last,
         helpText: checkIn ? 'CHECK-IN · 11 AM' : 'CHECK-OUT · 1–31 NIGHTS');
     if (result == null || !mounted) return;
@@ -84,7 +135,9 @@ class _AddBookingState extends State<AddBooking> {
       if (checkIn) {
         arrival = result;
         if (!departure.isAfter(arrival) ||
-            stayNights(arrival, departure) > maxStayNights) {
+            stayNights(arrival, departure) > maxStayNights ||
+            !stayAvailable(arrival, departure, occupied,
+                excluding: widget.booking?.id)) {
           departure = DateTime(arrival.year, arrival.month, arrival.day + 1);
         }
       } else {
@@ -217,18 +270,26 @@ class _AddBookingState extends State<AddBooking> {
       setState(() => error = 'Past dates cannot be booked.');
       return;
     }
+    if (!availabilityReady ||
+        !stayAvailable(arrival, departure, occupied,
+            excluding: widget.booking?.id)) {
+      setState(() =>
+          error = 'These dates are no longer available. Choose another stay.');
+      return;
+    }
     setState(() {
       saving = true;
       error = null;
     });
     try {
-      await store.save(
+      final savedId = await store.save(
           guestName: name.text,
           phone: phone.text,
           day: arrival,
           checkout: departure,
           totalPaise: parsePaise(amount.text)!,
           guestCount: guests,
+          paidPaise: paidAmount,
           source: source,
           notes: notes.text,
           id: widget.booking?.id,
@@ -236,7 +297,26 @@ class _AddBookingState extends State<AddBooking> {
       if (mounted) {
         message(
             widget.booking == null ? 'Booking confirmed' : 'Booking updated');
-        Navigator.pop(context);
+        if (widget.booking != null) {
+          Navigator.pop(context);
+        } else {
+          final booking = Booking(
+              id: savedId,
+              guestName: name.text.trim(),
+              phone: phone.text.trim(),
+              checkInAt: propertyCheckIn(arrival),
+              checkOutAt: propertyCheckIn(departure),
+              totalPaise: parsePaise(amount.text)!,
+              paidPaise: paidAmount,
+              guestCount: guests,
+              source: source,
+              notes: notes.text);
+          Navigator.pushReplacement(
+              context,
+              MaterialPageRoute<void>(
+                  builder: (_) =>
+                      BookingDetails(booking: booking, store: store)));
+        }
       }
     } on BookingConflict catch (e) {
       if (mounted) setState(() => error = e.toString());
@@ -254,6 +334,10 @@ class _AddBookingState extends State<AddBooking> {
     }
   }
 
+  int get paidAmount => paymentMode == 'full'
+      ? (parsePaise(amount.text) ?? 0)
+      : (parsePaise(advance.text, allowZero: true) ?? 0);
+
   @override
   Widget build(BuildContext context) => Scaffold(
       appBar: AppBar(
@@ -263,23 +347,6 @@ class _AddBookingState extends State<AddBooking> {
           child: ListView(
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
               children: [
-                Panel(
-                    child: Row(children: [
-                  const CircleAvatar(
-                      backgroundColor: violet,
-                      child: Icon(Icons.villa_outlined, color: Colors.white)),
-                  const SizedBox(width: 14),
-                  Expanded(
-                      child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                        Text('Rajhans Farmhouse',
-                            style: Theme.of(context).textTheme.titleMedium),
-                        const SizedBox(height: 4),
-                        const Text('A stay worth remembering')
-                      ]))
-                ])),
-                const SizedBox(height: 24),
                 TextFormField(
                     key: const ValueKey('guest-name'),
                     controller: name,
@@ -330,29 +397,26 @@ class _AddBookingState extends State<AddBooking> {
                         trailing: const Icon(Icons.expand_more),
                         onTap: chooseGuests)),
                 const SizedBox(height: 16),
-                LayoutBuilder(builder: (context, size) {
-                  final children = [
-                    _DateField(
-                        label: 'Check-in',
-                        date: arrival,
-                        onTap: () => pickDate(true)),
-                    _DateField(
-                        label: 'Check-out',
-                        date: departure,
-                        onTap: () => pickDate(false))
-                  ];
-                  return size.maxWidth > 340
-                      ? Row(children: [
-                          Expanded(child: children[0]),
-                          const SizedBox(width: 12),
-                          Expanded(child: children[1])
-                        ])
-                      : Column(children: [
-                          children[0],
-                          const SizedBox(height: 12),
-                          children[1]
-                        ]);
-                }),
+                Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Expanded(
+                      child: BookingDateCard(
+                          label: 'Check-in',
+                          date: arrival,
+                          onTap: () => pickDate(true))),
+                  const SizedBox(width: 10),
+                  Expanded(
+                      child: BookingDateCard(
+                          label: 'Check-out',
+                          date: departure,
+                          onTap: () => pickDate(false))),
+                ]),
+                const SizedBox(height: 8),
+                Text(
+                    availabilityError ??
+                        (availabilityReady
+                            ? 'Booked nights are greyed out. Checkout may share the next guest’s check-in date.'
+                            : 'Loading available dates…'),
+                    style: Theme.of(context).textTheme.bodySmall),
                 Padding(
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     child: Row(children: [
@@ -399,6 +463,58 @@ class _AddBookingState extends State<AddBooking> {
                                   amount.text = (item.paise ~/ 100).toString();
                                 })))
                         .toList()),
+                const SizedBox(height: 20),
+                Text('Payment details',
+                    style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: 12),
+                Wrap(spacing: 8, runSpacing: 8, children: [
+                  ChoiceChip(
+                      key: const ValueKey('advance-mode'),
+                      label: const Text('Advance paid'),
+                      selected: paymentMode == 'advance',
+                      onSelected: (_) =>
+                          setState(() => paymentMode = 'advance')),
+                  ChoiceChip(
+                      key: const ValueKey('full-mode'),
+                      label: const Text('Fully paid'),
+                      selected: paymentMode == 'full',
+                      onSelected: (_) => setState(() => paymentMode = 'full')),
+                ]),
+                if (paymentMode == 'advance') ...[
+                  const SizedBox(height: 12),
+                  TextFormField(
+                      key: const ValueKey('advance-amount'),
+                      controller: advance,
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                      onChanged: (_) => setState(() {}),
+                      decoration: const InputDecoration(
+                          labelText: 'Advance amount paid',
+                          prefixIcon: Icon(Icons.currency_rupee),
+                          helperText: 'Enter 0 if no payment received'),
+                      validator: (value) {
+                        final paid = parsePaise(value ?? '', allowZero: true);
+                        final total = parsePaise(amount.text);
+                        return paid == null || total == null || paid > total
+                            ? 'Enter an advance between ₹0 and the total'
+                            : null;
+                      }),
+                ],
+                const SizedBox(height: 14),
+                Panel(
+                    child: Row(children: [
+                  const Icon(Icons.account_balance_wallet_outlined,
+                      color: violet),
+                  const SizedBox(width: 12),
+                  Expanded(
+                      child: Text('Remaining balance',
+                          style: Theme.of(context).textTheme.titleSmall)),
+                  Text(
+                      money(((parsePaise(amount.text) ?? 0) - paidAmount)
+                          .clamp(0, 1000000000)),
+                      style: const TextStyle(
+                          fontWeight: FontWeight.bold, color: violet))
+                ])),
                 const SizedBox(height: 18),
                 DropdownButtonFormField<String>(
                     initialValue: source,
@@ -433,7 +549,7 @@ class _AddBookingState extends State<AddBooking> {
                               color: Theme.of(context).colorScheme.error))),
                 FilledButton.icon(
                     key: const ValueKey('save-booking'),
-                    onPressed: saving ? null : save,
+                    onPressed: saving || !availabilityReady ? null : save,
                     icon: saving
                         ? const SizedBox(
                             width: 18,
@@ -445,36 +561,4 @@ class _AddBookingState extends State<AddBooking> {
                         child:
                             Text(saving ? 'Saving booking…' : 'Save booking'))),
               ])));
-}
-
-class _DateField extends StatelessWidget {
-  const _DateField(
-      {required this.label, required this.date, required this.onTap});
-  final String label;
-  final DateTime date;
-  final VoidCallback onTap;
-  @override
-  Widget build(BuildContext context) => Panel(
-      padding: EdgeInsets.zero,
-      child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(20),
-          child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(children: [
-                      const Icon(Icons.calendar_month_outlined,
-                          color: violet, size: 18),
-                      const SizedBox(width: 8),
-                      Text(label, style: Theme.of(context).textTheme.bodySmall)
-                    ]),
-                    const SizedBox(height: 10),
-                    Text(readableDate(date),
-                        style: Theme.of(context).textTheme.titleSmall),
-                    const SizedBox(height: 4),
-                    const Text('11:00 AM',
-                        style: TextStyle(color: violet, fontSize: 12)),
-                  ]))));
 }

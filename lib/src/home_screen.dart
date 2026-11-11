@@ -1,3 +1,4 @@
+import 'reports_screen.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'booking_repository.dart';
@@ -110,7 +111,13 @@ class _AdminHomeState extends State<AdminHome> {
                       onDetails: details);
                 }
                 if (tab == 2) return _list(bookings);
-                return _dashboard(bookings, report: tab == 3);
+                if (tab == 3) {
+                  return ReportsScreen(
+                      month: month,
+                      bookings: bookings,
+                      onMonthChanged: setMonth);
+                }
+                return _dashboard(bookings);
               }));
   Widget _settings() => ListView(padding: const EdgeInsets.all(20), children: [
         Panel(
@@ -241,7 +248,9 @@ class _AdminHomeState extends State<AdminHome> {
     final filtered = bookings
         .where((b) =>
             (filter == 'All' || b.statusLabel() == filter) &&
-            '${b.guestName} ${b.phone} ${b.id}'.toLowerCase().contains(needle))
+            '${b.guestName} ${b.phone} ${b.displayId}'
+                .toLowerCase()
+                .contains(needle))
         .toList();
     return ListView(
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
