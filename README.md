@@ -2,7 +2,7 @@
 
 Android-first Flutter admin app using Firebase Spark, Google sign-in and an operator-managed administrator allowlist. iOS follows Android validation.
 
-## Version 0.3.0
+## Version 0.3.1
 
 - Date pickers grey out booked nights and reject checkout ranges crossing a booked night. An adjacent checkout/check-in on the same date remains valid.
 - Past India calendar dates are blocked for new bookings and rescheduling, in both the app and Firestore rules. Historical records remain readable and cancellable.
@@ -13,7 +13,7 @@ Android-first Flutter admin app using Firebase Spark, Google sign-in and an oper
 - Calendar cells show only the selected month's dates. Multi-day stays appear across occupied days and month boundaries.
 - Booking details generate a local PDF booking bill, offer preview/general sharing and open WhatsApp or WhatsApp Business with the attachment. WhatsApp may require recipient selection and always requires the user to tap Send.
 
-The booking form starts with customer name and keeps check-in/out cards side by side on small screens, as do booking details. Save opens the new booking's details automatically. Upcoming stays use a weekday/date tile.
+The booking form starts with customer name and keeps check-in/out cards side by side on small screens, as do booking details. Check-in/out cards reuse the same stacked weekday, large day number and month tile as upcoming stays, with the year and 11 AM shown below. Save opens the new booking's details automatically. Upcoming stays use a weekday/date tile.
 
 Advance/fully-paid choices record cumulative payment in integer paise, validated between zero and the total; remaining balance updates live. Admin corrections use the existing audit/revision checks. These are administrator-recorded amounts, not bank-verified transactions. A separate payment/refund ledger and cash-flow accounting remain later work. Cancellation preserves recorded payments and does not imply a refund.
 
@@ -51,3 +51,4 @@ Android call-log permission is restricted by installers and Google Play policy. 
 Test APKs use debug signing. GitHub runners generate different certificates; register each APK's SHA-1/SHA-256 in Firebase before Google login. Different keys may require uninstalling an older test build once. Use stable protected production signing before store distribution. Never commit credentials, signing keys or customer exports.
 
 Native call/contact/PDF/WhatsApp behavior and performance need physical-device validation. Payment/refund ledger, full customer directory, expenses, blocked dates, notifications, exports/backup, production signing and iOS setup remain. Reports distinguish booking value, recorded payment and remaining balance. See [the roadmap](docs/ROADMAP.md).
+

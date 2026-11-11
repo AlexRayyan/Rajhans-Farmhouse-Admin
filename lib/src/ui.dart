@@ -141,21 +141,7 @@ class BookingCard extends StatelessWidget {
               padding: const EdgeInsets.all(16),
               child:
                   Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Container(
-                    width: 58,
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    decoration: BoxDecoration(
-                        color: violet.withValues(alpha: .15),
-                        borderRadius: BorderRadius.circular(14)),
-                    child: Column(children: [
-                      Text(DateFormat('EEE', 'en_US').format(booking.arrival),
-                          style: const TextStyle(
-                              color: violet, fontWeight: FontWeight.w600)),
-                      Text('${booking.arrival.day}',
-                          style: Theme.of(context).textTheme.headlineSmall),
-                      Text(DateFormat('MMM', 'en_US').format(booking.arrival),
-                          style: Theme.of(context).textTheme.labelSmall)
-                    ])),
+                StayDateTile(date: booking.arrival),
                 const SizedBox(width: 12),
                 Expanded(
                     child: Column(
@@ -209,10 +195,37 @@ class BookingDateCard extends StatelessWidget {
                               style: Theme.of(context).textTheme.bodySmall))
                     ]),
                     const SizedBox(height: 10),
-                    Text(readableDate(date),
-                        style: Theme.of(context).textTheme.titleSmall),
-                    const SizedBox(height: 5),
-                    const Text('11:00 AM',
-                        style: TextStyle(color: violet, fontSize: 12)),
+                    Center(child: StayDateTile(date: date)),
+                    const SizedBox(height: 8),
+                    Center(
+                        child: Text('${date.year} · 11:00 AM',
+                            textAlign: TextAlign.center,
+                            style:
+                                const TextStyle(color: violet, fontSize: 12))),
                   ]))));
+}
+
+/// Shared by upcoming stays and all check-in/check-out cards.
+class StayDateTile extends StatelessWidget {
+  const StayDateTile({super.key, required this.date});
+  final DateTime date;
+  @override
+  Widget build(BuildContext context) => Semantics(
+      label: readableDate(date),
+      excludeSemantics: true,
+      child: Container(
+          width: 58,
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+              color: violet.withValues(alpha: .15),
+              borderRadius: BorderRadius.circular(14)),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Text(DateFormat('EEE', 'en_US').format(date),
+                style: const TextStyle(
+                    color: violet, fontWeight: FontWeight.w600)),
+            Text('${date.day}',
+                style: Theme.of(context).textTheme.headlineSmall),
+            Text(DateFormat('MMM', 'en_US').format(date),
+                style: Theme.of(context).textTheme.labelSmall),
+          ])));
 }

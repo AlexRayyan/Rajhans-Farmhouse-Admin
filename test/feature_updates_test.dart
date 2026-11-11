@@ -168,7 +168,10 @@ void main() {
     await tester.tap(find.text('Done'));
     await tester.pumpAndSettle();
     expect(find.text('100 guests'), findsOneWidget);
-    await tester.ensureVisible(find.byKey(const ValueKey('amount-1500000')));
+    await tester.scrollUntilVisible(
+        find.byKey(const ValueKey('amount-1500000')), 150,
+        scrollable: find.byType(Scrollable).first);
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('amount-1500000')));
     await tester.pump();
     await tester.scrollUntilVisible(
@@ -201,10 +204,13 @@ void main() {
         key: const ValueKey('capture'),
         child: AddBooking(booking: booking, store: FakeStore()))));
     await tester.pumpAndSettle();
-    await tester
-        .ensureVisible(find.text(readableDate(DateTime(futureYear, 8, 24))));
-    expect(
-        find.text(readableDate(DateTime(futureYear, 8, 27))), findsOneWidget);
+    await tester.ensureVisible(find.byType(StayDateTile).first);
+    final dates = tester
+        .widgetList<StayDateTile>(find.byType(StayDateTile))
+        .map((tile) => tile.date)
+        .toList();
+    expect(dates, [DateTime(futureYear, 8, 24), DateTime(futureYear, 8, 27)]);
+    expect(find.text('$futureYear · 11:00 AM'), findsNWidgets(2));
     expect(find.textContaining('3 nights'), findsOneWidget);
     await capture(tester, 'booking-form');
   });
