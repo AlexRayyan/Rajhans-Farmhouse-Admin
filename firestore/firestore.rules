@@ -1,26 +1,103 @@
 rules_version = '2';
+// One exclusive property, Asia/Kolkata, 11 AM to 11 AM (24 hours).
+// admins/{uid}: active:boolean, provisioned only by a trusted project operator.
+// bookings/{id}: guestName(2..120), phone(8..20), notes(0..1000), source enum,
+// guestCount(1..50), integer totalPaise(1..1e9), paidPaise(0 in this foundation),
+// checkInAt/checkOutAt timestamps, slotId (canonical epoch milliseconds string),
+// status confirmed/cancelled, createdBy/updatedBy uid, server timestamps,
+// revision integer. createdBy and createdAt are immutable. No hard deletion.
+// slots/{epochMillis}: bookingId(20-character auto ID), checkInAt timestamp.
+// Bookings and slots must be created, moved or released atomically.
 service cloud.firestore {
   match /databases/{database}/documents {
+    function isAuthenticated() { return request.auth != null; }
+    function isOwner(uid) { return isAuthenticated() && request.auth.uid == uid; }
     function isAdmin() {
-      return request.auth != null
-        && exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      return isAuthenticated()
         && get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.active == true;
     }
-    // An admin may only read their own allowlist entry. It is provisioned by a trusted operator.
+    function boundedString(value, low, high) {
+      return value is string && value.size() >= low && value.size() <= high;
+    }
+    function uidUnchanged(data) { return data.createdBy == request.auth.uid; }
+    function uidNotModified(data) { return data.createdBy == resource.data.createdBy; }
+    function isValidBooking(data) {
+      return data.keys().hasAll(['guestName','phone','notes','source','guestCount',
+          'totalPaise','paidPaise','checkInAt','checkOutAt','slotId','status',
+          'createdBy','updatedBy','createdAt','updatedAt','revision'])
+        && data.keys().hasOnly(['guestName','phone','notes','source','guestCount',
+          'totalPaise','paidPaise','checkInAt','checkOutAt','slotId','status',
+          'createdBy','updatedBy','createdAt','updatedAt','revision'])
+        && boundedString(data.guestName, 2, 120)
+        && boundedString(data.phone, 8, 20) && data.phone.matches('^[+0-9 ()-]{8,20}$')
+        && boundedString(data.notes, 0, 1000)
+        && data.source in ['phone','whatsapp','walk-in','other']
+        && data.guestCount is int && data.guestCount >= 1 && data.guestCount <= 50
+        && data.totalPaise is int && data.totalPaise > 0 && data.totalPaise <= 1000000000
+        && data.paidPaise is int && data.paidPaise == 0
+        && data.checkInAt is timestamp && data.checkOutAt is timestamp
+        && data.checkInAt >= timestamp.date(2020,1,1)
+        && data.checkInAt < timestamp.date(2100,1,1)
+        && data.checkInAt.hours() == 5 && data.checkInAt.minutes() == 30
+        && data.checkInAt.seconds() == 0 && data.checkInAt.nanos() == 0
+        && data.checkOutAt == data.checkInAt + duration.value(24,'h')
+        && boundedString(data.slotId, 12, 14)
+        && data.slotId == string(data.checkInAt.toMillis())
+        && data.status in ['confirmed','cancelled']
+        && boundedString(data.createdBy, 1, 128) && boundedString(data.updatedBy, 1, 128)
+        && data.createdAt is timestamp && data.updatedAt == request.time
+        && data.updatedBy == request.auth.uid
+        && data.revision is int && data.revision >= 0 && data.revision <= 1000000;
+    }
+    function ownsSlotAfter(data, id) {
+      let slot = getAfter(/databases/$(database)/documents/slots/$(data.slotId)).data;
+      return slot.bookingId == id && slot.checkInAt == data.checkInAt;
+    }
+    function slotReleasedAfter(slotId) {
+      return !existsAfter(/databases/$(database)/documents/slots/$(slotId));
+    }
     match /admins/{uid} {
-      allow read: if request.auth != null && request.auth.uid == uid;
-      allow write: if false;
+      allow get: if isOwner(uid);
+      allow list, create, update, delete: if false;
     }
     match /bookings/{id} {
       allow read: if isAdmin();
-      allow write: if false; // Validated only via callable Functions.
+      allow create: if isAdmin() && id.matches('^[A-Za-z0-9]{20}$')
+        && isValidBooking(request.resource.data) && uidUnchanged(request.resource.data)
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.revision == 0 && request.resource.data.status == 'confirmed'
+        && !exists(/databases/$(database)/documents/slots/$(request.resource.data.slotId))
+        && ownsSlotAfter(request.resource.data, id);
+      allow update: if isAdmin() && isValidBooking(request.resource.data)
+        && uidNotModified(request.resource.data)
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.revision == resource.data.revision + 1
+        && resource.data.status == 'confirmed'
+        && (request.resource.data.status == 'confirmed'
+          ? ownsSlotAfter(request.resource.data, id)
+          : slotReleasedAfter(resource.data.slotId)
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','updatedBy','updatedAt','revision']))
+        && (request.resource.data.slotId == resource.data.slotId
+          || slotReleasedAfter(resource.data.slotId));
+      allow delete: if false;
     }
-    match /nightLocks/{date} {
+    function isValidSlot(data, slotId) {
+      return data.keys().hasAll(['bookingId','checkInAt'])
+        && data.keys().hasOnly(['bookingId','checkInAt'])
+        && boundedString(data.bookingId,20,20) && data.bookingId.matches('^[A-Za-z0-9]{20}$')
+        && data.checkInAt is timestamp && slotId == string(data.checkInAt.toMillis());
+    }
+    match /slots/{slotId} {
       allow read: if isAdmin();
-      allow write: if false;
+      allow create: if isAdmin() && isValidSlot(request.resource.data,slotId)
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.slotId == slotId
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.status == 'confirmed'
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.updatedAt == request.time;
+      allow update: if false;
+      allow delete: if isAdmin()
+        && (getAfter(/databases/$(database)/documents/bookings/$(resource.data.bookingId)).data.status == 'cancelled'
+          || getAfter(/databases/$(database)/documents/bookings/$(resource.data.bookingId)).data.slotId != slotId);
     }
-    match /{document=**} {
-      allow read, write: if false;
-    }
+    match /{document=**} { allow read, write: if false; }
   }
 }

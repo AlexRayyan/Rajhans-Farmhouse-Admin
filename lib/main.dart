@@ -4,26 +4,15 @@ import 'src/app.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  const apiKey = String.fromEnvironment('FIREBASE_API_KEY');
-  const appId = String.fromEnvironment('FIREBASE_APP_ID');
-  const projectId = String.fromEnvironment('FIREBASE_PROJECT_ID');
-  const senderId = String.fromEnvironment('FIREBASE_SENDER_ID');
   bool ready = false;
   String? error;
-  if ([apiKey, appId, projectId, senderId].every((x) => x.isNotEmpty)) {
-    try {
-      await Firebase.initializeApp(
-        options: const FirebaseOptions(
-          apiKey: apiKey,
-          appId: appId,
-          projectId: projectId,
-          messagingSenderId: senderId,
-        ),
-      );
-      ready = true;
-    } catch (e) {
-      error = e.toString();
-    }
+  try {
+    // Native Android/iOS configuration is bundled by the platform build.
+    await Firebase.initializeApp();
+    ready = true;
+  } catch (e) {
+    debugPrint('Firebase initialization failed: $e');
+    error = 'Unable to start the app. Please restart and try again.';
   }
   runApp(RajhansApp(firebaseReady: ready, setupError: error));
 }

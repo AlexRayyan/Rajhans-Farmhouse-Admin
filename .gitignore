@@ -8,9 +8,17 @@ build/
 *.iml
 .dart_defines.json
 .env*
-**/google-services.json
+# Android Firebase client config is public; server credentials remain excluded.
 **/GoogleService-Info.plist
 **/key.properties
 **/*.jks
 **/*.keystore
 firebase-debug.log
+functions/node_modules/
+node_modules/
+*-debug.log
+ui-debug.log
+android/local.properties
+android/.gradle/
+**/google-services.updated.json
+

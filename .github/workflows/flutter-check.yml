@@ -1,25 +1,42 @@
 name: Flutter checks
 on:
+  workflow_dispatch:
   pull_request:
   push:
     branches: [main]
 jobs:
+  firestore-rules:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: npm ci
+      - run: npx -y firebase-tools@latest emulators:exec --project demo-rajhans --only firestore "npm run test:rules"
   analyze-test-build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          flutter-version: '3.47.9'
           cache: true
-      - name: Generate Flutter host project
-        run: flutter create --platforms=android,ios --project-name rajhans_farmhouse_admin .
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter test
-      - name: Build unconfigured Android release
-        run: flutter build apk --release
+      - name: Verify Android release compilation (test signing)
+        run: flutter build apk --release --target-platform android-arm64
       - uses: actions/upload-artifact@v4
         with:
-          name: android-apk-unconfigured
+          name: android-compilation-check
           path: build/app/outputs/flutter-apk/app-release.apk

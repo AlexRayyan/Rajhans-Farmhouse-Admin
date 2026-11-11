@@ -1,7 +1,21 @@
 {
-  "functions": [{"source": "functions", "codebase": "default"}],
   "firestore": {
+    "database": "(default)",
+    "location": "asia-south1",
     "rules": "firestore/firestore.rules",
-    "indexes": "firestore/firestore.indexes.json"
+    "indexes": "firestore.indexes.json"
+  },
+  "auth": {
+    "providers": {
+      "googleSignIn": {
+        "supportEmail": "reemxstudios@gmail.com",
+        "oAuthBrandDisplayName": "Rajhans Farmhouse"
+      }
+    }
+  },
+  "emulators": {
+    "firestore": { "port": 8080 },
+    "ui": { "enabled": false },
+    "singleProjectMode": true
   }
 }
